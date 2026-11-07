@@ -2,7 +2,7 @@
 
 ## Deployment
 
-1. Apply existing SQL migrations 0001–0004, then `supabase/migrations/0005_admin_accounts.sql` through the Supabase SQL editor or your migration runner. Back up the identity schema first. The migration enforces one Super Admin and one primary assignment per store. It intentionally fails if existing data contains multiple Super Admins: reconcile those accounts first.
+1. Apply existing SQL migrations 0001–0004, then `supabase/migrations/0005_admin_accounts.sql`, `0006_platform_management.sql` and `0007_saas_expansion.sql` (see SAAS_EXPANSION_REPORT.md) through the Supabase SQL editor or your migration runner. Back up the identity schema first. The migration enforces one Super Admin and one primary assignment per store. It intentionally fails if existing data contains multiple Super Admins: reconcile those accounts first.
 2. Configure `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, server-only `SUPABASE_SERVICE_ROLE_KEY`, `AXORA_AUTH_MODE=supabase`, and `AXORA_APP_URL` (the canonical HTTPS admin origin, without a trailing slash). Configure Google Sheets and a persistent `AXORA_DATA_DIR` as described in README.
 3. In Supabase Authentication settings, **disable new user signups**. Enable email/password sign-in, configure production SMTP, set Site URL to `AXORA_APP_URL`, and allow the `/auth/callback` redirect URL. There is no registration UI or registration server action.
 4. Set the Supabase **Reset Password** email template link to:

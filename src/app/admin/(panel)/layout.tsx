@@ -17,7 +17,8 @@ export default async function PanelLayout({
   const [stores, context, activity] = await Promise.all([
     repository.listStoreOptions(),
     getStoreContext(),
-    notificationPage(admin),
+    // A notification outage must not take down every admin page.
+    notificationPage(admin).catch(() => ({ rows: [], unread: 0 })),
   ]);
 
   return (

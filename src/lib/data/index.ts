@@ -1,7 +1,7 @@
 import { googleSheetsRepository } from "./google-repository";
 import type { Repository } from "./repository";
 import { withPlatformLock } from "@/lib/platform/locks";
-import { enforceLimit } from "@/lib/platform/subscriptions";
+import { enforceLimit, currentMonthStart } from "@/lib/platform/subscriptions";
 import { invalidateStoreCache } from "./google-repository";
 import { getStoreRegistry } from "@/lib/registry";
 const WRITES = new Set(["createProduct","updateProduct","deleteProduct","bulkUpdateProducts","createCategory","updateCategory","deleteCategory","updateOrderStatus","updatePaymentStatus","createOrder","adjustStock","updateStoreSettings","updateStoreSheets","updateStore","setStoreStatus","deleteStore"]);
@@ -27,7 +27,7 @@ const guarded = new Proxy(googleSheetsRepository, {
           if(!["deleteStore","setStoreStatus","updateStoreSheets"].includes(key))await enforceLimit(id,"write");
           if(key==="createProduct")await enforceLimit(id,"products",(await target.listProducts({storeId:id,pageSize:1})).total,1);
           if(key==="createOrder"||key==="updateOrderStatus"){
-            const from=new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Ulaanbaatar"}).slice(0,7)+"-01";
+            const from=currentMonthStart();
             await enforceLimit(id,"orders",(await target.listOrders({storeId:id,from,pageSize:1})).total,key==="createOrder"?1:0);
           }
         }

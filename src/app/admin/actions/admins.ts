@@ -10,7 +10,7 @@ import { enforceLimit } from "@/lib/platform/subscriptions";
 
 export async function manageAdminAction(_: ActionResult | undefined, form: FormData): Promise<ActionResult> {
   const actor = await requireSuperAdmin();
-  const operation = z.enum(["create", "update", "reset"]).parse(form.get("operation"));
+  const operation = z.enum(["create", "update", "reset", "revoke"]).parse(form.get("operation"));
   const client = createSupabaseServiceClient();
   let id = String(form.get("id") || "");
   let storeId: string | null = null;
@@ -45,17 +45,28 @@ export async function manageAdminAction(_: ActionResult | undefined, form: FormD
         const assignedStore = z.string().min(1).parse(form.get("storeId"));
         if (!await getStoreRegistry().get(assignedStore)) throw new Error("Дэлгүүр олдсонгүй.");
         if(assignedStore!==storeId){const count=await client.from("admin_assignments").select("user_id",{count:"exact",head:true}).eq("store_id",assignedStore);if(count.error)throw count.error;await enforceLimit(assignedStore,"admins",count.count??0,1);}
-        const assigned = await client.from("admin_assignments").update({ store_id: assignedStore }).eq("user_id", id);
-        if (assigned.error) throw assigned.error;
+        // Upsert so a previously revoked account (no assignment row) can be re-assigned.
+        const assigned = await client.from("admin_assignments").upsert({ user_id: id, store_id: assignedStore }, { onConflict: "user_id" });
+        if (assigned.error) throw assigned.error.code === "23505" ? new Error("Энэ дэлгүүрт өөр Store Admin оноогдсон байна.") : assigned.error;
         storeId = assignedStore;
         const updated = await client.from("profiles").update({ full_name: name, is_active: active }).eq("id", id);
         if (updated.error) throw updated.error;
         const banned = await client.auth.admin.updateUserById(id, { ban_duration: active ? "none" : "876000h" });
         if (banned.error) throw banned.error;
+      } else if (operation === "revoke") {
+        if (form.get("confirmation") !== profile.email) throw new Error("Баталгаажуулахын тулд Admin-ий имэйлийг яг хэвээр оруулна уу.");
+        // Fail closed: the profile flag is written first, so access is denied even if later steps fail.
+        const disabled = await client.from("profiles").update({ is_active: false }).eq("id", id);
+        if (disabled.error) throw disabled.error;
+        const removed = await client.from("admin_assignments").delete().eq("user_id", id);
+        if (removed.error) throw removed.error;
+        const banned = await client.auth.admin.updateUserById(id, { ban_duration: "876000h" });
+        if (banned.error) throw banned.error;
       }
     }
+    const after = operation === "revoke" ? { active: false, storeId: null } : operation === "reset" ? null : { name: form.get("name"), active: operation === "create" || form.get("active") === "on", storeId };
     await recordAudit(actor, { storeId, action: `admin.${operation}`, resourceType: "admin", resourceId: id,
-      metadata: { before, after: { name: form.get("name"), active: form.get("active") === "on", storeId }, status: "success", role: actor.role } });
+      metadata: { before, after, status: "success", role: actor.role } });
     if (operation === "create" || operation === "reset") {
       const user = await client.auth.admin.getUserById(id);
       if (!user.data.user?.email) throw new Error("Имэйл олдсонгүй.");
@@ -66,7 +77,7 @@ export async function manageAdminAction(_: ActionResult | undefined, form: FormD
       if (reset.error) throw reset.error;
     }
     revalidatePath("/admin/admins");
-    return { ok: true, message: operation === "update" ? "Account шинэчлэгдлээ." : "Нууц үг тохируулах имэйл илгээлээ." };
+    return { ok: true, message: operation === "update" ? "Account шинэчлэгдлээ." : operation === "revoke" ? "Хандах эрх цуцлагдлаа. Дахин оноохдоо дэлгүүр сонгоод идэвхжүүлнэ үү." : "Нууц үг тохируулах имэйл илгээлээ." };
   } catch (error) {
     await recordAudit(actor, { storeId, action: `admin.${operation}`, resourceType: "admin", resourceId: id || null, metadata: { status: "failed", role: actor.role } });
     revalidatePath("/admin/admins");

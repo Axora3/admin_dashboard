@@ -1,6 +1,12 @@
 import Link from "next/link";
-import { AnalyticsReport } from "@/components/admin/analytics-report";
+import { StoreOverview } from "@/components/admin/store-overview";
+import { hasPermission, type Permission } from "@/lib/platform/permissions";
 import { notFound } from "next/navigation";
+
+const SECTION_PERMISSION: Record<string, Permission> = {
+  overview: "analytics.read", products: "products.read", categories: "products.read", orders: "orders.read",
+  customers: "customers.read", settings: "settings.manage", "audit-logs": "audit.read",
+};
 import { withStoreAdmin } from "@/lib/auth/store-scope";
 import { getRepository } from "@/lib/data";
 import { StoreMutationForm } from "@/components/admin/store-mutation-form";
@@ -13,16 +19,18 @@ export default async function StorePage({ params, searchParams }: { params: Prom
   const query = await searchParams;
   const page = Math.max(1, Number(query.page) || 1);
   const current = section[0] || "overview";
-  if (section.length > 1 || !["overview","products","categories","orders","customers","analytics","settings","audit-logs"].includes(current)) notFound();
+  // "analytics" and "notifications" have dedicated routes.
+  if (section.length > 1 || !SECTION_PERMISSION[current]) notFound();
   return withStoreAdmin(async admin => {
+    // Server-side read authorization; storeId always comes from the verified assignment.
+    if (!hasPermission(admin, SECTION_PERMISSION[current], admin.storeId)) notFound();
     const repo = getRepository();
     const store = await repo.getStore(admin.storeId);
     if (!store) notFound();
-    const titles: Record<string,string> = { overview: store.name, products: "Бүтээгдэхүүн", categories: "Ангилал", orders: "Захиалга", customers: "Хэрэглэгчид", analytics: "Борлуулалтын статистик", settings: "Дэлгүүрийн тохиргоо", "audit-logs": "Үйлдлийн түүх" };
+    const titles: Record<string,string> = { overview: store.name, products: "Бүтээгдэхүүн", categories: "Ангилал", orders: "Захиалга", customers: "Хэрэглэгчид", settings: "Дэлгүүрийн тохиргоо", "audit-logs": "Үйлдлийн түүх" };
     let content: React.ReactNode;
-    if (current === "overview" || current === "analytics") {
-      const analytics = await repo.storeAnalytics(admin.storeId, query.from, query.to);
-      content = <div className="space-y-6">{current === "analytics" && <form className="flex flex-wrap items-end gap-3"><Field name="from" label="Эхлэх" type="date" value={query.from} /><Field name="to" label="Дуусах" type="date" value={query.to} /><button className="rounded border p-2.5">Шүүх</button></form>}<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[["Борлуулалт", `${analytics.totalRevenue.toLocaleString()} ₮`],["Захиалга",analytics.totalOrders],["Хэрэглэгч",analytics.totalCustomers],["Бүтээгдэхүүн",store.productCount]].map(([label,value]) => <Box key={label}><p className="text-sm text-slate-500">{label}</p><p className="mt-3 text-3xl font-semibold">{value}</p></Box>)}</div><div className="grid gap-6 md:grid-cols-2"><Box><h2 className="mb-4 font-semibold">Шилдэг бүтээгдэхүүн</h2>{analytics.topProducts.length ? analytics.topProducts.map(p => <div key={p.id} className="flex justify-between border-t py-3"><span>{p.name}</span><span>{p.revenue.toLocaleString()} ₮</span></div>) : <p className="text-slate-500">Борлуулалт бүртгэгдээгүй.</p>}</Box><Box><h2 className="mb-4 font-semibold">Захиалгын төлөв</h2>{analytics.statusBreakdown.map(s => <div key={s.status} className="flex justify-between border-t py-3"><span>{s.status}</span><span>{s.count}</span></div>)}</Box></div></div>;
+    if (current === "overview") {
+      content = <StoreOverview storeId={admin.storeId} currency={store.currency} />;
     } else if (current === "products") {
       const products = await repo.listProducts({ storeId: admin.storeId, page, pageSize: 20, search: query.search });
       const categories = await repo.listCategories(admin.storeId);
@@ -46,7 +54,7 @@ export default async function StorePage({ params, searchParams }: { params: Prom
       const logs = await repo.listAuditLogs({ storeId: admin.storeId, page, pageSize: 20 });
       content = <Box>{logs.rows.map(l => <details key={l.id} className="border-b py-4"><summary className="cursor-pointer">{l.actorName} · {l.action} · {new Date(l.createdAt).toLocaleString("mn-MN", { timeZone: "Asia/Ulaanbaatar" })}</summary><pre className="mt-3 overflow-auto rounded bg-slate-50 p-3 text-xs">{JSON.stringify(l.metadata,null,2)}</pre></details>)}{!logs.total && <p>Үйлдлийн бүртгэл байхгүй.</p>}<Pages page={page} count={logs.pageCount} /></Box>;
     }
-    return <div className="space-y-6"><header className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-teal-700">{store.name} / Store workspace</p><h1 className="text-3xl font-semibold">{titles[current]}</h1></div><div className="rounded-lg border bg-white px-4 py-3 text-sm"><p>Google Sheets: <strong>{store.sheets.connectionStatus}</strong></p><p className="mt-1 text-xs text-slate-500">Сүүлд синк: {store.sheets.lastSyncAt ? new Date(store.sheets.lastSyncAt).toLocaleString("mn-MN", { timeZone: "Asia/Ulaanbaatar" }) : "Синк хийгдээгүй"}</p></div></header>{content}{current === "overview" && <AnalyticsReport storeId={admin.storeId} query={query} basePath="/store-admin"/>}</div>;
+    return <div className="space-y-6"><header><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-teal-700">{store.name} / Store workspace</p><h1 className="text-3xl font-semibold">{titles[current]}</h1></header>{content}</div>;
   });
 }
 function Pages({ page, count, search }: { page: number; count: number; search?: string }) { return count > 1 ? <nav className="mt-4 flex justify-between text-sm"><Link href={`?page=${Math.max(1,page-1)}&search=${encodeURIComponent(search ?? "")}`}>← Өмнөх</Link><span>{page} / {count}</span><Link href={`?page=${Math.min(count,page+1)}&search=${encodeURIComponent(search ?? "")}`}>Дараах →</Link></nav> : null; }

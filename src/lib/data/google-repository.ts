@@ -1023,15 +1023,17 @@ export const googleSheetsRepository: Repository = {
       const store = await hydrateStore(record);
       let products: Product[] = [];
       let orders: Order[] = [];
+      let failed = false;
       try {
         [products, orders] = await Promise.all([
           readStoreProducts(record),
           readStoreOrders(record),
         ]);
       } catch {
-        // Connection errors are surfaced on the store row.
+        // Never count an unreadable store as zero: it is reported as unavailable.
+        failed = true;
       }
-      return { store, products, orders };
+      return { store, products, orders, failed };
     });
     const stores = data.map((entry) => entry.store);
     const products = data.flatMap((entry) => entry.products);
@@ -1051,7 +1053,7 @@ export const googleSheetsRepository: Repository = {
         .at(-1) ?? null;
     return {
       ...base,
-      unavailableStores: stores.filter(s=>s.sheets.connectionStatus==="error").map(s=>s.id),
+      unavailableStores: data.filter(entry=>entry.failed||entry.store.sheets.connectionStatus==="error").map(entry=>entry.store.name),
       refreshedAt: new Date().toISOString(),
       currencies: [...new Set(stores.map(s=>s.currency))],
       connectedSheets: stores.filter((store) => store.sheets.connectionStatus === "connected").length,

@@ -10,7 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:security": "node scripts/test-admin-security.cjs",
-    "test:platform": "node --test scripts/test-platform.cjs",
+    "test:platform": "node --test scripts/test-platform.cjs scripts/test-saas-expansion.cjs",
     "setup:admin": "node scripts/setup-admin.mjs"
   },
   "dependencies": {

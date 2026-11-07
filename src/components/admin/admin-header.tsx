@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect,useState } from "react";
+import { useUnreadCount } from "./use-unread-count";
 import {
   Bell,
   Boxes,
@@ -53,8 +53,7 @@ export function AdminHeader({
   onMenu: () => void;
   unreadCount: number;
 }) {
-  const [unread,setUnread]=useState(unreadCount);
-  useEffect(()=>{setUnread(unreadCount);const timer=setInterval(()=>{void fetch("/api/notifications").then(r=>r.ok?r.json():null).then(data=>{if(data)setUnread(data.unread);}).catch(()=>{});},60000);return ()=>clearInterval(timer);},[unreadCount]);
+  const unread = useUnreadCount(unreadCount);
   return (
     <header className="border-b border-ink-100 bg-white/85 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-2 px-4 sm:px-6 lg:px-8">

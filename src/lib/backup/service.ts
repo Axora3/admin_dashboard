@@ -7,7 +7,6 @@ import { createSheetBackend } from "@/lib/google/sheet-backend";
 import { readWorkbookGrid,restoreWorkbookGrid } from "@/lib/google/sheets-client";
 import { withPlatformLock,assertOperationLock } from "@/lib/platform/locks";
 import { enforceLimit } from "@/lib/platform/subscriptions";
-import { publishNotification } from "@/lib/platform/notifications";
 import { invalidateStoreCache } from "@/lib/data/google-repository";
 import { recordPlatformAudit } from "@/lib/registry/audit-store";
 import { snapshotSchema,normalizedGrid,assertSnapshotOwnership,type Grid } from "./validation";
@@ -51,11 +50,28 @@ export async function createBackup(storeId:string,kind:"manual"|"scheduled"|"pre
       checked(await db.storage.from(BUCKET).upload(objectPath,Buffer.from(raw),{contentType:"application/json",upsert:false}));
       const downloaded=checked(await db.storage.from(BUCKET).download(objectPath));if(hash(await downloaded.data!.text())!==hash(raw))throw new Error("Uploaded backup verification failed.");
       checked(await db.from("platform_backups").update({status:"success",object_path:objectPath,checksum:hash(raw),size_bytes:size,row_count:grid.reduce((n,t)=>n+Math.max(0,t.rows.length-1),0),tab_count:grid.length,completed_at:new Date().toISOString()}).eq("id",id));
+      // The audit entry publishes the platform "backup created" notification.
       await audit(storeId,"backup.created",id,"success",actor);
-      await publishNotification({key:`backup:${id}`,storeId,category:"backup",title:"Backup амжилттай үүслээ",audience:"platform"});
       return id;
-    }catch(error){checked(await db.from("platform_backups").update({status:"failed",failure_code:"backup_failed",completed_at:new Date().toISOString()}).eq("id",id));await audit(storeId,"backup.failed",id,"failed",actor);throw error;}
+    }catch(error){checked(await db.from("platform_backups").update({status:"failed",failure_code:backupFailureCode(error),completed_at:new Date().toISOString()}).eq("id",id));await audit(storeId,"backup.failed",id,"failed",actor);throw error;}
   });
+}
+/** Diagnostic failure code; never contains Google/Supabase messages, IDs or credentials. */
+export function backupFailureCode(error:unknown):string {
+  const m=error instanceof Error?error.message:"";
+  if(/Empty workbook/.test(m))return "empty_workbook";
+  if(/50MB/.test(m))return "size_limit_exceeded";
+  if(/ашиглалтын хязгаар/.test(m))return "storage_limit_reached";
+  if(/хугацаа дууссан|түдгэлзсэн|боломж одоогийн багцад/.test(m))return "plan_restriction";
+  if(/bucket must be private/.test(m))return "bucket_not_private";
+  if(/verification failed/.test(m))return "upload_verification_failed";
+  if(/Platform storage/.test(m))return "storage_error";
+  return "sheets_read_failed";
+}
+/** Re-downloads a stored backup and verifies checksum, schema and store ownership without restoring. */
+export async function verifyBackup(id:string,storeId:string,actor:string) {
+  try{const {row,snapshot}=await backupPreview(id,storeId);await audit(storeId,"backup.verified",id,"success",actor);return {ok:true as const,checksum:row.checksum as string,tabs:snapshot.grid.length};}
+  catch(error){await audit(storeId,"backup.verify_failed",id,"failed",actor);throw error;}
 }
 export async function backupPreview(id:string,storeId:string) {
   const db=platformDb();const row=checked(await db.from("platform_backups").select("*").eq("id",id).eq("store_id",storeId).eq("status","success").single()).data;

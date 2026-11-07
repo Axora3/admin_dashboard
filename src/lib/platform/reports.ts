@@ -8,6 +8,6 @@ export function parseReportFilters(query:Record<string,string|undefined>) {retur
 export async function getReports(storeId:string|undefined,query:Record<string,string|undefined>) {
   const filters=parseReportFilters(query);const stores=storeId?[await getStoreRegistry().get(storeId)].filter(s=>s!==null):await getStoreRegistry().list();
   const reports: Array<{id:string;name:string;currency:string;refreshedAt:string;data:ReturnType<typeof aggregateReport>}>=[],unavailable:string[]=[];
-  for(const store of stores){try{const raw=await readStoreReportData(store.id);reports.push({id:store.id,name:store.name,currency:store.currency,refreshedAt:raw.refreshedAt,data:aggregateReport(raw.orders,raw.products,filters.from,filters.to,filters.group)});}catch{unavailable.push(store.id);}}
+  for(const store of stores){try{const raw=await readStoreReportData(store.id);reports.push({id:store.id,name:store.name,currency:store.currency,refreshedAt:raw.refreshedAt,data:aggregateReport(raw.orders,raw.products,filters.from,filters.to,filters.group)});}catch{unavailable.push(store.name);}}
   return {filters,reports,unavailable,storeCount:stores.length};
 }

@@ -6,6 +6,7 @@ import { checked, platformDb, platformEnabled } from "@/lib/platform/db";
 import { sanitizedMetadata, STORE_AUDIT_ACTION } from "@/lib/platform/sanitize";
 import { storeScope } from "@/lib/auth/store-scope";
 import { publishNotification } from "@/lib/platform/notifications";
+import { auditNotification } from "@/lib/platform/notification-rules";
 import type { AuditFilters, AuditLog, Paginated } from "@/lib/types";
 import type { AuditInput } from "@/lib/data/repository";
 import { paginate, randomToken } from "@/lib/utils";
@@ -103,8 +104,15 @@ export async function listPlatformAuditLogs(
 export async function recordPlatformAudit(input: AuditInput): Promise<void> {
   if (platformEnabled()) {
     const entry = checked(await platformDb().from("platform_audit").insert({actor_id:input.actorUserId,actor_name:input.actorName,store_id:input.storeId,action:input.action,resource_type:input.resourceType,resource_id:input.resourceId,metadata:sanitizedMetadata(input.metadata??{})}).select("id").single());
-    if (/^(store\.created|admin\.|domain\.|subscription\.|backup\.|restore\.|sheets\.)/.test(input.action)) {
-      await publishNotification({ key:`audit:${entry.data!.id}`,storeId:input.storeId,category:input.action.split(".")[0],title:input.action,audience:"platform" });
+    const notice = auditNotification(input.action, input.metadata ?? {});
+    if (notice) {
+      try {
+        await publishNotification({ key:`audit:${entry.data!.id}`,storeId:input.storeId,category:notice.category,title:notice.title,audience:"platform" });
+        if (notice.storeVisible && input.storeId) await publishNotification({ key:`audit:${entry.data!.id}:store`,storeId:input.storeId,category:notice.category,title:notice.title,audience:"store" });
+      } catch (error) {
+        // The audit record is already durable; a notification failure must not fail the operation.
+        console.error("[axora] notification publish failed", error instanceof Error ? error.message : "unknown");
+      }
     }
     return;
   }
