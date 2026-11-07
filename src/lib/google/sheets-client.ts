@@ -1,4 +1,6 @@
 import "server-only";
+import type { Grid, Cell } from "@/lib/backup/validation";
+import { sheetApiFailure } from "@/lib/platform/telemetry";
 
 import { createSign } from "node:crypto";
 import {
@@ -268,11 +270,12 @@ async function sheetsRequest<T>(
       globalForGoogle.__axoraGoogleToken = undefined;
     }
 
-    const retryable = response.status === 429 || response.status >= 500;
+    const retryable = (!init.method || init.method === "GET" || init.method === "PUT") && (response.status === 429 || response.status >= 500);
     if (!retryable || attempt >= 3) break;
     await new Promise((resolve) => setTimeout(resolve, 350 * attempt * attempt));
   }
 
+  await sheetApiFailure(lastError?.code??"google_api_failed");
   throw lastError ?? new GoogleSheetsError(context);
 }
 
@@ -451,4 +454,28 @@ export function resourceTab(
   resource: SheetResource,
 ): string {
   return tabs[resource];
+}
+
+/** Preserve typed cell values and formulas for recovery; never replay append writes. */
+export async function readWorkbookGrid(spreadsheetId:string):Promise<Grid> {
+  const result=await sheetsRequest<{sheets:Array<{properties:{title:string};data?:Array<{startRow?:number;startColumn?:number;rowData?:Array<{values?:Array<{userEnteredValue?:Cell}>}>}>}>}>(`/${encodeURIComponent(spreadsheetId)}?includeGridData=true&fields=sheets(properties.title,data(startRow,startColumn,rowData.values.userEnteredValue))`,{},"Backup read");
+  return result.sheets.map(s=>{
+    const rows:Cell[][]=[];
+    for(const block of s.data??[])for(const [i,row] of (block.rowData??[]).entries()){
+      const index=(block.startRow??0)+i;rows[index]??=[];
+      for(const [j,cell] of (row.values??[]).entries())rows[index][(block.startColumn??0)+j]=cell.userEnteredValue??{};
+    }
+    return {name:s.properties.title,rows:Array.from({length:rows.length},(_,i)=>Array.from({length:rows[i]?.length??0},(_,j)=>rows[i]?.[j]??{}))};
+  });
+}
+export async function restoreWorkbookGrid(spreadsheetId:string,grid:Grid):Promise<void> {
+  const meta=await getSpreadsheetMeta(spreadsheetId);
+  const requests=grid.map(tab=>{
+    const target=meta.tabs.find(t=>t.title===tab.name);if(!target)throw new Error("Restore tab is missing; repair mapping first.");
+    const rows=Math.max(1,tab.rows.length),columns=Math.max(1,...tab.rows.map(r=>r.length));
+    return [{updateSheetProperties:{properties:{sheetId:target.sheetId,gridProperties:{rowCount:Math.max(target.rowCount,rows),columnCount:Math.max(target.columnCount,columns)}},fields:"gridProperties.rowCount,gridProperties.columnCount"}},
+      {updateCells:{range:{sheetId:target.sheetId},rows:tab.rows.map(r=>({values:r.map(v=>({userEnteredValue:v}))})),fields:"userEnteredValue"}}];
+  }).flat();
+  // One Google batchUpdate validates/applies the cell updates together.
+  await batchUpdateSheet(spreadsheetId,requests);
 }

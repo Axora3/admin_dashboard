@@ -2,7 +2,7 @@ import { getRepository } from "@/lib/data";
 import type { AdminUser } from "@/lib/types";
 
 export async function recordAudit(
-  admin: Pick<AdminUser, "id" | "email" | "fullName">,
+  admin: Pick<AdminUser, "id" | "email" | "fullName"> & Partial<Pick<AdminUser, "role">>,
   entry: {
     storeId?: string | null;
     action: string;
@@ -18,6 +18,6 @@ export async function recordAudit(
     action: entry.action,
     resourceType: entry.resourceType,
     resourceId: entry.resourceId ?? null,
-    metadata: entry.metadata ?? {},
+    metadata: { role: admin.role ?? "super_admin", status: "success", ...entry.metadata },
   });
 }

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  distDir: process.env.AXORA_DIST_DIR || ".next",
   reactStrictMode: true,
   poweredByHeader: false,
   // Pin the tracing root to this project. Without it Next may pick a parent

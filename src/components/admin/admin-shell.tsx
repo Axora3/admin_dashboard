@@ -12,6 +12,7 @@ export function AdminShell({
   selectedStoreId,
   selectedStoreName,
   notifications,
+  unreadCount,
   banner,
   children,
 }: {
@@ -20,6 +21,7 @@ export function AdminShell({
   selectedStoreId: string | null;
   selectedStoreName: string | null;
   notifications: AuditLog[];
+  unreadCount: number;
   banner?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -37,6 +39,7 @@ export function AdminShell({
             selectedStoreId={selectedStoreId}
             selectedStoreName={selectedStoreName}
             notifications={notifications}
+            unreadCount={unreadCount}
             onMenu={() => setMenuOpen(true)}
           />
         </div>

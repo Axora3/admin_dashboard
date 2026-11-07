@@ -2,6 +2,8 @@ import "server-only";
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { checked, platformDb, platformEnabled } from "@/lib/platform/db";
 import type { CreateStoreInput, UpdateStoreInput } from "@/lib/types";
 import { defaultStoreSettings } from "@/lib/data/defaults";
 import {
@@ -22,6 +24,7 @@ import type {
 const globalForRegistry = globalThis as unknown as {
   __axoraRegistryLocks?: Map<string, Promise<void>>;
 };
+const registryRevision = new AsyncLocalStorage<{ value: number }>();
 
 function dataDir(): string {
   return process.env.AXORA_DATA_DIR
@@ -47,7 +50,7 @@ async function withLock<T>(action: () => Promise<T>): Promise<T> {
   locks.set(file, previous.then(() => current));
   await previous;
   try {
-    return await action();
+    return await registryRevision.run({ value: -1 }, action);
   } finally {
     release();
     if (locks.get(file) === current) locks.delete(file);
@@ -55,6 +58,11 @@ async function withLock<T>(action: () => Promise<T>): Promise<T> {
 }
 
 async function readRegistry(): Promise<RegistryData> {
+  if (platformEnabled()) {
+    const { data } = checked(await platformDb().from("platform_registry").select("payload,revision").eq("id", true).single());
+    if (registryRevision.getStore()) registryRevision.getStore()!.value = data!.revision;
+    return { version: 1, stores: (data!.payload.stores as StoreRecord[]).map(s => ({ ...s, settings: defaultStoreSettings() })) };
+  }
   try {
     const raw = await fs.readFile(registryFile(), "utf8");
     const parsed = JSON.parse(raw) as RegistryData;
@@ -71,6 +79,11 @@ async function readRegistry(): Promise<RegistryData> {
 }
 
 async function writeRegistry(data: RegistryData): Promise<void> {
+  if (platformEnabled()) {
+    const payload = { version: 1, stores: data.stores.map(({ settings: _businessSettings, ...store }) => store) };
+    checked(await platformDb().rpc("axora_save_registry", { expected_revision: registryRevision.getStore()?.value ?? -1, next_payload: payload }));
+    return;
+  }
   await fs.mkdir(dataDir(), { recursive: true });
   const file = registryFile();
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
@@ -178,7 +191,7 @@ function createDomainRecord(
 }
 
 export class FileStoreRegistry implements StoreRegistry {
-  readonly kind = "file" as const;
+  get kind(): "file" | "supabase" { return platformEnabled() ? "supabase" : "file"; }
 
   async list(): Promise<StoreRecord[]> {
     return (await readRegistry()).stores;

@@ -70,9 +70,7 @@ async function resolveStoreSlug(hostname: string): Promise<string | null> {
 
   try {
     const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/store_domains?select=stores(slug,status)&domain=eq.${encodeURIComponent(
-        hostname,
-      )}&limit=1`,
+      `${SUPABASE_URL}/rest/v1/platform_registry?select=payload&id=eq.true`,
       {
         headers: {
           apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -82,12 +80,9 @@ async function resolveStoreSlug(hostname: string): Promise<string | null> {
       },
     );
     if (!response.ok) return null;
-    const rows = (await response.json()) as Array<{
-      stores?: { slug?: string } | Array<{ slug?: string }>;
-    }>;
-    const store = rows?.[0]?.stores;
-    if (Array.isArray(store)) return store[0]?.slug ?? null;
-    return store?.slug ?? null;
+    const rows = (await response.json()) as Array<{payload:{stores:Array<{slug:string;status:string;domains:Array<{domain:string;verificationStatus:string;status:string}>}>}}>;
+    const store=rows[0]?.payload.stores.find(s=>s.status==="active"&&s.domains.some(d=>d.domain===hostname&&d.verificationStatus==="verified"&&d.status==="active"));
+    return store?.slug??null;
   } catch {
     return null;
   }
@@ -99,7 +94,7 @@ export async function middleware(request: NextRequest) {
   const hostname = hostHeader.split(":")[0].toLowerCase();
   const local = isLocalHost(hostname);
 
-  const isAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
+  const isAdmin = pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/store-admin" || pathname.startsWith("/store-admin/");
   const isLogin = pathname === "/admin/login";
   const isApi = pathname.startsWith("/api/");
   const isStorefront = pathname === "/store" || pathname.startsWith("/store/");
@@ -118,13 +113,6 @@ export async function middleware(request: NextRequest) {
     url.search = "";
     url.searchParams.set("next", `${pathname}${search}`);
     return withCookies(auth!.response, NextResponse.redirect(url));
-  }
-
-  if (isLogin && auth?.authenticated) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/admin/dashboard";
-    url.search = "";
-    return withCookies(auth.response, NextResponse.redirect(url));
   }
 
   // --- Host based storefront routing --------------------------------------

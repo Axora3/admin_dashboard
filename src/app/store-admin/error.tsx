@@ -1,0 +1,2 @@
+"use client";
+export default function StoreError({ reset }: { reset: () => void }) { return <section className="rounded-xl border border-red-200 bg-white p-6"><h1 className="text-xl font-semibold">Дэлгүүрийн өгөгдлийг ачаалж чадсангүй</h1><p className="my-3">Google Sheets холболтыг шалгуулахаар Super Admin-тай холбогдоно уу.</p><button className="rounded bg-teal-800 px-4 py-2 text-white" onClick={reset}>Дахин оролдох</button></section>; }

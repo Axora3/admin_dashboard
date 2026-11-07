@@ -1,0 +1,2 @@
+"use client";
+export default function PlatformBoundary({reset}:{reset:()=>void}) {return <section className="rounded-xl border bg-white p-6"><h1 className="text-xl font-semibold">Platform модулийг ачаалж чадсангүй</h1><p className="my-3 text-sm text-ink-500">Supabase connection болон platform migration-ийг шалгана уу.</p><button className="rounded-lg bg-brand-600 px-4 py-2 text-white" onClick={reset}>Дахин оролдох</button></section>;}

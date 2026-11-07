@@ -18,7 +18,7 @@ import {
   setDemoPassword,
 } from "@/lib/auth/demo-credentials";
 import { signSession } from "@/lib/auth/session";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient,createSupabaseServiceClient } from "@/lib/supabase/server";
 import {
   formObject,
   passwordSchema,
@@ -133,7 +133,7 @@ export async function updateProfileAction(
         data: { full_name: fullName },
       });
       if (authError) throw new Error(authError.message);
-      const { error } = await supabase
+      const { error } = await createSupabaseServiceClient()
         .from("profiles")
         .update({ full_name: fullName })
         .eq("id", admin.id);

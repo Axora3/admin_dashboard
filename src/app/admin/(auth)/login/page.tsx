@@ -40,9 +40,9 @@ export default async function LoginPage({
 
   const notice =
     params.forgot === "1"
-      ? "Super Admin нууц үгийг сэргээх нь аюулгүй байдлын журмын дагуу гараар хийгдэнэ. AXORA платформын хариуцсан инженертэй холбогдоно уу."
+      ? "Store Admin нууц үг сэргээх холбоос авахын тулд Super Admin-тай холбогдоно уу. Super Admin нь платформын хариуцсан инженертэй холбогдоно."
       : params.error === "forbidden"
-        ? "Энэ аккаунтад Super Admin эрх байхгүй байна."
+        ? "Энэ аккаунтад Admin эрх байхгүй байна."
         : null;
 
   return (
@@ -54,13 +54,13 @@ export default async function LoginPage({
             <div className="w-full max-w-[380px] py-10">
               <div className="mb-7">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-2xs font-semibold uppercase tracking-[0.12em] text-brand-700 ring-1 ring-inset ring-brand-100">
-                  <ShieldCheck className="h-3 w-3" /> Super Admin
+                  <ShieldCheck className="h-3 w-3" /> AXORA Admin
                 </span>
                 <h1 className="mt-3 text-[28px] font-semibold leading-tight tracking-[-0.03em] text-ink-950">
                   AXORA Admin-д тавтай морил
                 </h1>
                 <p className="mt-2 text-sm leading-relaxed text-ink-500">
-                  Бүх дэлгүүрээ нэг төвөөс удирдах Super Admin эрхээр нэвтэрнэ үү.
+                  Super Admin эсвэл Store Admin эрхээр нэвтэрнэ үү.
                 </p>
               </div>
 

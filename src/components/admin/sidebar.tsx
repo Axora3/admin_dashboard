@@ -28,6 +28,7 @@ const NAV_GROUPS = [
     label: "Удирдлага",
     items: [
       { href: "/admin/dashboard", label: "Хянах самбар", icon: LayoutDashboard },
+      { href: "/admin/admins", label: "Admin Management", icon: Users },
       { href: "/admin/stores", label: "Дэлгүүрүүд", icon: Store },
     ],
   },
@@ -44,6 +45,10 @@ const NAV_GROUPS = [
   {
     label: "Өгөгдөл ба хяналт",
     items: [
+      { href: "/admin/system-health", label: "System Health", icon: Boxes },
+      { href: "/admin/notifications", label: "Мэдэгдэл", icon: ScrollText },
+      { href: "/admin/subscriptions", label: "Subscription", icon: Store },
+      { href: "/admin/backups", label: "Backup & Recovery", icon: Boxes },
       { href: "/admin/analytics", label: "Статистик", icon: BarChart3 },
       { href: "/admin/domains", label: "Домэйн удирдлага", icon: Globe },
     ],

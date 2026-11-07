@@ -10,7 +10,7 @@ import type {
 export type { StoreSheetsMeta } from "@/lib/google/types";
 
 export type StoreStatus = "active" | "suspended" | "archived";
-export type UserRole = "super_admin" | "store_owner" | "store_staff";
+export type UserRole = "super_admin" | "store_admin" | "store_owner" | "store_staff";
 export type MemberRole = "owner" | "manager" | "staff";
 export type MemberStatus = "invited" | "active" | "disabled";
 
@@ -229,6 +229,7 @@ export interface AuditLog {
 }
 
 export interface AdminUser {
+  storeId?: string | null;
   id: string;
   email: string;
   fullName: string;
@@ -244,6 +245,9 @@ export interface SeriesPoint {
 }
 
 export interface PlatformStats {
+  unavailableStores?: string[];
+  refreshedAt?: string;
+  currencies?: string[];
   totalStores: number;
   activeStores: number;
   suspendedStores: number;
@@ -340,6 +344,7 @@ export interface CustomerFilters {
 }
 
 export interface AuditFilters {
+  actorUserId?: string;
   storeId?: string;
   action?: string;
   page?: number;

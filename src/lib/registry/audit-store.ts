@@ -2,6 +2,10 @@ import "server-only";
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { checked, platformDb, platformEnabled } from "@/lib/platform/db";
+import { sanitizedMetadata, STORE_AUDIT_ACTION } from "@/lib/platform/sanitize";
+import { storeScope } from "@/lib/auth/store-scope";
+import { publishNotification } from "@/lib/platform/notifications";
 import type { AuditFilters, AuditLog, Paginated } from "@/lib/types";
 import type { AuditInput } from "@/lib/data/repository";
 import { paginate, randomToken } from "@/lib/utils";
@@ -68,10 +72,24 @@ export async function listPlatformAuditLogs(
   filters: AuditFilters,
   storeNameById: Map<string, string>,
 ): Promise<Paginated<AuditLog>> {
+  if (platformEnabled()) {
+    const page = Math.max(1, filters.page ?? 1), size = Math.min(100, Math.max(1,filters.pageSize ?? 20));
+    let query = platformDb().from("platform_audit").select("*",{count:"exact"});
+    const storeId = storeScope.getStore() ?? filters.storeId;
+    if (storeId) query = query.eq("store_id",storeId);
+    if (filters.actorUserId) query=query.eq("actor_id",filters.actorUserId);
+    if (filters.action) query=query.eq("action",filters.action);
+    if (storeScope.getStore()) query=query.in("resource_type",["product","category","order","inventory","store_settings","settings","session","admin"]);
+    const {data,count} = checked(await query.order("created_at",{ascending:false}).range((page-1)*size,page*size-1));
+    const rows: AuditLog[] = (data??[]).filter(l=>!storeScope.getStore() || STORE_AUDIT_ACTION.test(l.action)).map(l=>({id:l.id,actorUserId:l.actor_id,actorName:l.actor_name,storeId:l.store_id,storeName:storeNameById.get(l.store_id)??null,action:l.action,resourceType:l.resource_type,resourceId:l.resource_id,metadata:sanitizedMetadata(l.metadata) as Record<string,unknown>,createdAt:l.created_at}));
+    return {rows,total:count??0,page,pageSize:size,pageCount:Math.ceil((count??0)/size)};
+  }
   const data = await readAudit();
   let rows = data.logs;
+  if (filters.actorUserId) rows = rows.filter((log) => log.actorUserId === filters.actorUserId);
   if (filters.storeId) rows = rows.filter((log) => log.storeId === filters.storeId);
   if (filters.action) rows = rows.filter((log) => log.action === filters.action);
+  if (storeScope.getStore()) rows = rows.filter(log => log.storeId === storeScope.getStore() && STORE_AUDIT_ACTION.test(log.action)).map(log=>({...log,metadata:sanitizedMetadata(log.metadata) as Record<string,unknown>}));
   rows = rows
     .slice()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -83,6 +101,13 @@ export async function listPlatformAuditLogs(
 }
 
 export async function recordPlatformAudit(input: AuditInput): Promise<void> {
+  if (platformEnabled()) {
+    const entry = checked(await platformDb().from("platform_audit").insert({actor_id:input.actorUserId,actor_name:input.actorName,store_id:input.storeId,action:input.action,resource_type:input.resourceType,resource_id:input.resourceId,metadata:sanitizedMetadata(input.metadata??{})}).select("id").single());
+    if (/^(store\.created|admin\.|domain\.|subscription\.|backup\.|restore\.|sheets\.)/.test(input.action)) {
+      await publishNotification({ key:`audit:${entry.data!.id}`,storeId:input.storeId,category:input.action.split(".")[0],title:input.action,audience:"platform" });
+    }
+    return;
+  }
   await withLock(async () => {
     const data = await readAudit();
     data.logs.unshift({

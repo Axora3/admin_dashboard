@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect,useState } from "react";
 import {
   Bell,
   Boxes,
@@ -42,6 +43,7 @@ export function AdminHeader({
   selectedStoreName,
   notifications,
   onMenu,
+  unreadCount,
 }: {
   admin: AdminUser;
   stores: StoreOption[];
@@ -49,7 +51,10 @@ export function AdminHeader({
   selectedStoreName: string | null;
   notifications: AuditLog[];
   onMenu: () => void;
+  unreadCount: number;
 }) {
+  const [unread,setUnread]=useState(unreadCount);
+  useEffect(()=>{setUnread(unreadCount);const timer=setInterval(()=>{void fetch("/api/notifications").then(r=>r.ok?r.json():null).then(data=>{if(data)setUnread(data.unread);}).catch(()=>{});},60000);return ()=>clearInterval(timer);},[unreadCount]);
   return (
     <header className="border-b border-ink-100 bg-white/85 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-2 px-4 sm:px-6 lg:px-8">
@@ -95,8 +100,8 @@ export function AdminHeader({
           <Dropdown
             trigger={
               <span className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-ink-200 bg-white text-ink-500 shadow-sm transition hover:border-ink-300 hover:text-ink-800">
-                <Bell className="h-4 w-4" />
-                {notifications.length > 0 ? (
+                <Bell className="h-4 w-4" /><span className="sr-only">{unread} уншаагүй мэдэгдэл</span>
+                {unread > 0 ? (
                   <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-brand-600 ring-2 ring-white" />
                 ) : null}
               </span>
@@ -104,9 +109,9 @@ export function AdminHeader({
             menuClassName="w-[330px]"
           >
             <div className="flex items-center justify-between px-2.5 py-2">
-              <p className="text-xs font-semibold text-ink-900">Сүүлийн үйл ажиллагаа</p>
+              <p className="text-xs font-semibold text-ink-900">Мэдэгдэл</p>
               <Link
-                href="/admin/audit-logs"
+                href="/admin/notifications"
                 className="text-2xs font-medium text-brand-600 hover:underline"
               >
                 Бүгдийг харах
@@ -115,13 +120,13 @@ export function AdminHeader({
             <DropdownDivider />
             {notifications.length === 0 ? (
               <p className="px-2.5 py-6 text-center text-xs text-ink-400">
-                Одоогоор үйл ажиллагаа бүртгэгдээгүй.
+                Одоогоор мэдэгдэл байхгүй.
               </p>
             ) : (
               notifications.map((item) => (
                 <Link
                   key={item.id}
-                  href="/admin/audit-logs"
+                  href="/admin/notifications"
                   className="flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition hover:bg-ink-50"
                 >
                   <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink-100 text-ink-500">

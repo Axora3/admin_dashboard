@@ -149,8 +149,8 @@ function lockFor(file: string): Promise<void> {
 }
 
 async function withFileLock<T>(file: string, action: () => Promise<T>): Promise<T> {
-  const locks = globalForLocal.__axoraLocalSheetLocks!;
   const previous = lockFor(file);
+  const locks = globalForLocal.__axoraLocalSheetLocks!;
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
     release = resolve;

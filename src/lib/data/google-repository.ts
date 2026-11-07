@@ -1,4 +1,6 @@
 import "server-only";
+import { storeScope } from "@/lib/auth/store-scope";
+import { assertOperationLock } from "@/lib/platform/locks";
 
 import type {
   AuditFilters,
@@ -109,6 +111,17 @@ function invalidate(storeId: string, resource?: SheetResource) {
     return;
   }
   cache().delete(cacheKey(storeId, resource));
+}
+export const invalidateStoreCache = invalidate;
+export async function readStoreReportData(storeId:string) {
+  const store=await requireStore(storeId);
+  invalidate(storeId);
+  for(const resource of ["products","orders","categories"] as SheetResource[]){
+    const table=await readResourceTable(store,resource);
+    for(const field of REQUIRED_COLUMNS[resource])if(!resolveHeader(table.headers,store.sheets.columns[resource],field,DEFAULT_COLUMNS[resource]))throw new Error("Required columns are missing.");
+  }
+  const [products,orders,categories]=await Promise.all([readStoreProducts(store),readStoreOrders(store),readStoreCategories(store)]);
+  return {products,orders,categories,refreshedAt:new Date().toISOString()};
 }
 
 function nowIso() {
@@ -243,6 +256,7 @@ async function writeResourceRow(
   values: Record<string, string>,
   rowNumber?: number | null,
 ): Promise<void> {
+  assertOperationLock();
   const table = await ensureResourceTable(store, resource);
   const backend = backendFor(store);
   const merged = rowNumber
@@ -447,9 +461,10 @@ async function readStoreCategories(store: StoreRecord): Promise<Category[]> {
 
 async function hydrateStore(record: StoreRecord): Promise<Store> {
   try {
-    const [products, orders] = await Promise.all([
+    const [products, orders, settings] = await Promise.all([
       readStoreProducts(record),
       readStoreOrders(record),
+      getStoreSettingsRecord(record),
     ]);
     const revenue = orders
       .filter((order) => order.orderStatus !== "cancelled" && order.paymentStatus === "paid")
@@ -459,7 +474,7 @@ async function hydrateStore(record: StoreRecord): Promise<Store> {
         `${order.customerPhone || order.customerEmail || order.customerName}`.toLowerCase(),
       ),
     ).size;
-    return toStore(record, {
+    return toStore({...record,settings}, {
       products: products.length,
       orders: orders.length,
       customers,
@@ -1036,6 +1051,9 @@ export const googleSheetsRepository: Repository = {
         .at(-1) ?? null;
     return {
       ...base,
+      unavailableStores: stores.filter(s=>s.sheets.connectionStatus==="error").map(s=>s.id),
+      refreshedAt: new Date().toISOString(),
+      currencies: [...new Set(stores.map(s=>s.currency))],
       connectedSheets: stores.filter((store) => store.sheets.connectionStatus === "connected").length,
       sheetErrors: stores.filter((store) => store.sheets.connectionStatus === "error").length,
       localSheets: stores.filter((store) => store.sheets.connectionStatus === "local").length,
@@ -1181,7 +1199,8 @@ export const googleSheetsRepository: Repository = {
     const groups = await mapLimit(records, 4, async (record) => {
       try {
         return await readStoreProducts(record);
-      } catch {
+      } catch (error) {
+        if (filters.storeId) throw error;
         return [];
       }
     });
@@ -1379,7 +1398,8 @@ export const googleSheetsRepository: Repository = {
     const groups = await mapLimit(records, 4, async (record) => {
       try {
         return await readStoreOrders(record);
-      } catch {
+      } catch (error) {
+        if (filters.storeId) throw error;
         return [];
       }
     });
@@ -1749,7 +1769,7 @@ export const googleSheetsRepository: Repository = {
   async listAuditLogs(filters: AuditFilters): Promise<Paginated<AuditLog>> {
     const records = await getStoreRegistry().list();
     const names = new Map(records.map((record) => [record.id, record.name]));
-    return listPlatformAuditLogs(filters, names);
+    return listPlatformAuditLogs({ ...filters, storeId: storeScope.getStore() ?? filters.storeId }, names);
   },
 
   async recordAudit(input: AuditInput): Promise<void> {

@@ -25,6 +25,7 @@ import { formObject, storeSchema, zodErrors } from "@/lib/validation";
 import type { ActionResult } from "@/lib/action-result";
 import { messageOf } from "@/lib/errors";
 import type { StoreStatus } from "@/lib/types";
+import { manageAdminAction } from "./admins";
 
 const STATUS_ACTIONS: Record<StoreStatus, string> = {
   active: "store.activated",
@@ -123,6 +124,15 @@ export async function createStoreAction(
   revalidatePath("/admin/stores");
   revalidatePath("/admin/dashboard");
   revalidatePath("/admin/domains");
+  if (!isLocalAuthMode()) {
+    const account = new FormData();
+    account.set("operation", "create");
+    account.set("email", values.ownerEmail);
+    account.set("name", values.ownerName);
+    account.set("storeId", storeId);
+    const result = await manageAdminAction(undefined, account);
+    if (!result.ok) redirect(`/admin/admins?notice=${encodeURIComponent(`Дэлгүүр үүссэн. ${result.message ?? "Admin үүсгэлтийг шалгана уу."}`)}`);
+  }
   redirect(`/admin/stores/${storeId}?created=1`);
 }
 

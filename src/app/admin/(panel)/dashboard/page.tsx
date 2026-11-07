@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { PlatformOverview } from "@/components/admin/platform-overview";
+import { AnalyticsReport } from "@/components/admin/analytics-report";
 import {
   ArrowUpRight,
   Boxes,
@@ -41,6 +43,7 @@ export default async function DashboardPage() {
   ]);
 
   const currentRevenue = stats.monthlySales.at(-1)?.value ?? 0;
+  if ((stats.currencies?.length??0)>1) return <><PlatformOverview/><AnalyticsReport query={{}} basePath="/admin/dashboard"/></>;
   const previousRevenue = stats.monthlySales.at(-2)?.value ?? 0;
   const revenueTrend = percentChange(currentRevenue, previousRevenue);
   const recentOrders = stats.dailyOrders.reduce((sum, point) => sum + point.value, 0);
@@ -48,6 +51,9 @@ export default async function DashboardPage() {
 
   return (
     <>
+      <PlatformOverview />
+      {stats.unavailableStores?.length ? <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-4 text-sm text-amber-800">Мэдээлэл дутуу: {stats.unavailableStores.join(", ")}. Зөвхөн амжилттай ачаалсан дэлгүүрүүдийн дүнг харуулж байна.</p> : null}
+      <p className="mb-4 text-xs text-ink-500">Sheets data refreshed: {stats.refreshedAt ?? "Unknown"}</p>
       <PageHeader
         title="Хянах самбар"
         description="AXORA платформын бүх дэлгүүрийн нэгдсэн гүйцэтгэл, сүүлийн үйл ажиллагаа."

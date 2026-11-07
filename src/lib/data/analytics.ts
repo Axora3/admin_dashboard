@@ -64,7 +64,7 @@ function paid(orders: Order[]) {
 function customerCount(orders: Order[]) {
   const keys = new Set(
     orders.map((o) =>
-      `${o.customerPhone || o.customerEmail || o.customerName}`.toLowerCase(),
+      `${o.storeId}:${o.customerPhone || o.customerEmail || o.customerName}`.toLowerCase(),
     ),
   );
   return keys.size;
@@ -115,7 +115,7 @@ export function computePlatformStats(
     .slice(0, 5);
 
   const productAgg = new Map<string, { quantity: number; revenue: number }>();
-  for (const order of orders) {
+  for (const order of revenueOrders) {
     if (order.orderStatus === "cancelled") continue;
     for (const item of order.items) {
       if (!item.productId) continue;
@@ -212,7 +212,7 @@ export function computeStoreAnalytics(
   const productAgg = new Map<string, { quantity: number; revenue: number }>();
   const categoryAgg = new Map<string, number>();
 
-  for (const order of orders) {
+  for (const order of revenueOrders) {
     if (order.orderStatus === "cancelled") continue;
     for (const item of order.items) {
       if (!item.productId) continue;

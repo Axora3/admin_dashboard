@@ -117,20 +117,11 @@ export async function loginAction(
       return { ok: false, message: "Имэйл эсвэл нууц үг буруу байна." };
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("is_super_admin, full_name, email")
-      .eq("id", data.user.id)
-      .maybeSingle();
-
-    if (!profile?.is_super_admin) {
+    const authorized = await getCurrentAdmin();
+    if (!authorized) {
       await supabase.auth.signOut();
-      return {
-        ok: false,
-        message: "Энэ аккаунтад AXORA Super Admin эрх байхгүй байна.",
-      };
+      return { ok: false, message: "Account идэвхгүй эсвэл эрх оноогоогүй байна." };
     }
-
     resetRateLimit(`login:account:${ip}:${email.toLowerCase()}`);
     const admin = await getCurrentAdmin();
     if (admin) {
@@ -138,14 +129,16 @@ export async function loginAction(
         action: "auth.login",
         resourceType: "session",
         resourceId: null,
-        metadata: {},
+        storeId: admin.storeId,
+        metadata: { role: admin.role, status: "success" },
       });
     }
   } catch (error) {
     return { ok: false, message: messageOf(error) };
   }
 
-  redirect(next);
+  const current = await getCurrentAdmin();
+  redirect(current?.isSuperAdmin ? "/admin" : "/store-admin");
 }
 
 export async function logoutAction(): Promise<void> {
