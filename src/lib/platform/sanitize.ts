@@ -7,4 +7,4 @@ export function sanitizedMetadata(value: unknown, depth = 0): unknown {
   if (typeof value === "string") return value.slice(0, 1000);
   return value;
 }
-export const STORE_AUDIT_ACTION = /^(product\.|category\.|order\.|inventory\.|store\.settings_updated$|settings\.save$|auth\.login$|auth\.password_changed$)/;
+export const STORE_AUDIT_ACTION = /^(product\.|category\.|order\.|inventory\.|site_data\.|site_schema\.|site_config\.|store\.settings_updated$|settings\.save$|auth\.login$|auth\.password_changed$)/;

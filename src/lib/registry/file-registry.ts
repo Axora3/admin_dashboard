@@ -13,6 +13,7 @@ import {
   spreadsheetUrl,
   type StoreSheetsConfig,
 } from "@/lib/google/types";
+import { canonicalBusinessType, modulesForBusiness, SHEET_SCHEMA_VERSION } from "@/lib/google/schema-registry";
 import { normalizeDomain, randomToken, slugify } from "@/lib/utils";
 import type {
   RegistryData,
@@ -119,6 +120,9 @@ function ensureUnique(
 
 function buildSheetsConfig(input: CreateStoreInput): StoreSheetsConfig {
   const base = defaultSheetsConfig();
+  const businessType = canonicalBusinessType(input.businessType);
+  base.enabledModules = modulesForBusiness(businessType);
+  base.schemaVersion = SHEET_SCHEMA_VERSION;
   if (!input.sheets) return base;
   const spreadsheetId = extractSpreadsheetId(
     input.sheets.spreadsheetId || input.sheets.spreadsheetUrl,
@@ -131,6 +135,9 @@ function buildSheetsConfig(input: CreateStoreInput): StoreSheetsConfig {
     columns: input.sheets.columns
       ? cloneColumns(input.sheets.columns)
       : base.columns,
+    enabledModules: base.enabledModules,
+    schemaVersion: base.schemaVersion,
+    configurationVersion: base.configurationVersion ?? 1,
   };
 }
 

@@ -68,6 +68,11 @@ export const THEME_STYLE: Record<ThemeStyle, string> = {
 };
 
 export const BUSINESS_TYPES = [
+  "Онлайн дэлгүүр",
+  "Restaurant / Coffee shop",
+  "Үйлчилгээний бизнес",
+  "Бизнес профайл",
+    "Портфолио",
   "Хувцас",
   "Электроник",
   "Гоо сайхан",

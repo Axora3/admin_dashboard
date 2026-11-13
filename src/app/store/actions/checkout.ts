@@ -8,6 +8,7 @@ import { messageOf } from "@/lib/errors";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { formObject, zodErrors } from "@/lib/validation";
 import type { CheckoutInput } from "@/lib/types";
+import { deliveryLocationSchema } from "@/lib/delivery/validation";
 
 export interface CheckoutActionResult extends ActionResult {
   orderId?: string;
@@ -94,6 +95,12 @@ export async function submitCheckoutAction(
   }
 
   const values = parsed.data;
+  const coordinate = (name: string) => {
+    const value = String(formData.get(name) ?? "").trim();
+    return value === "" ? null : Number(value);
+  };
+  const location = deliveryLocationSchema.safeParse({ latitude: coordinate("latitude"), longitude: coordinate("longitude") });
+  if (!location.success) return { ok: false, errors: { delivery: "Газрын зургийн өргөрөг, уртрагыг хоёуланг нь зөв оруулна уу." } };
   const note = [values.note, `Төлбөрийн хэлбэр: ${PAYMENT_LABELS[values.paymentMethod]}`]
     .filter(Boolean)
     .join("\n");
@@ -104,6 +111,7 @@ export async function submitCheckoutAction(
     customerPhone: values.customerPhone,
     customerEmail: values.customerEmail ?? "",
     customerAddress: values.customerAddress,
+    delivery: location.data,
     note,
     items: values.items.map((item) => ({
       productId: item.productId,

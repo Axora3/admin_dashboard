@@ -1,7 +1,7 @@
 import { z } from "zod";
 export const cellSchema=z.object({stringValue:z.string().optional(),numberValue:z.number().finite().optional(),boolValue:z.boolean().optional(),formulaValue:z.string().optional()}).strict().refine(c=>Object.keys(c).length<=1);
 export const gridSchema=z.array(z.object({name:z.string().min(1),rows:z.array(z.array(cellSchema))}));
-export const snapshotSchema=z.object({version:z.literal(1),storeId:z.string().min(1),sourceRef:z.string(),mode:z.enum(["google","local"]),createdAt:z.string(),configuration:z.record(z.unknown()),grid:gridSchema});
+export const snapshotSchema=z.object({version:z.literal(1),storeId:z.string().min(1),sourceRef:z.string(),mode:z.enum(["google","local"]),createdAt:z.string(),configuration:z.record(z.string(), z.unknown()),grid:gridSchema});
 export type Cell=z.infer<typeof cellSchema>;
 export type Grid=z.infer<typeof gridSchema>;
 export function normalizedGrid(grid:Grid):string {

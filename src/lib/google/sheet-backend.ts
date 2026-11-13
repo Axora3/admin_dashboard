@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   addSheetTab,
   appendSheetValues,
+  batchUpdateSheet,
   deleteSheetRow,
   getSheetValues,
   getSpreadsheetMeta,
@@ -22,8 +23,11 @@ export interface SheetBackend {
     values: Record<string, string>,
     rowNumber?: number | null,
   ): Promise<void>;
+  patchRow(tab: string, headers: string[], values: Record<string, string>, rowNumber: number): Promise<void>;
   deleteRow(tab: string, rowNumber: number): Promise<void>;
   ensureTable(tab: string, headers: string[]): Promise<void>;
+  /** Append missing headers without replacing existing headers or row values. */
+  ensureColumns(tab: string, headers: string[]): Promise<void>;
 }
 
 export class SheetTabMissingError extends Error {
@@ -110,6 +114,24 @@ class GoogleSheetBackend implements SheetBackend {
     await deleteSheetRow(this.spreadsheetId, sheetId, rowNumber);
   }
 
+  async patchRow(tab: string, headers: string[], values: Record<string, string>, rowNumber: number): Promise<void> {
+    if (!Number.isInteger(rowNumber) || rowNumber < 2) throw new Error("Invalid sheet row");
+    const sheetId = (await this.tabMap()).get(tab);
+    if (sheetId === undefined) throw new SheetTabMissingError(tab);
+    const requests = Object.entries(values).map(([header, value]) => {
+      const columnIndex = headers.indexOf(header);
+      if (columnIndex < 0) throw new Error("Missing sheet column");
+      return {
+        updateCells: {
+          start: { sheetId, rowIndex: rowNumber - 1, columnIndex },
+          rows: [{ values: [{ userEnteredValue: { stringValue: value } }] }],
+          fields: "userEnteredValue",
+        },
+      };
+    });
+    if (requests.length) await batchUpdateSheet(this.spreadsheetId, requests);
+  }
+
   async ensureTable(tab: string, headers: string[]): Promise<void> {
     const tabs = await this.tabMap();
     if (!tabs.has(tab)) {
@@ -124,6 +146,29 @@ class GoogleSheetBackend implements SheetBackend {
         [headers],
       );
     }
+  }
+
+  async ensureColumns(tab: string, headers: string[]): Promise<void> {
+    const table = await this.readTable(tab);
+    const missing = [...new Set(headers)].filter((header) => !table.headers.includes(header));
+    if (!missing.length) return;
+    const nextLength = table.headers.length + missing.length;
+    const metadata = await getSpreadsheetMeta(this.spreadsheetId);
+    const sheet = metadata.tabs.find((entry) => entry.title === tab);
+    if (!sheet) throw new SheetTabMissingError(tab);
+    if (sheet.columnCount < nextLength) {
+      await batchUpdateSheet(this.spreadsheetId, [{
+        updateSheetProperties: {
+          properties: { sheetId: sheet.sheetId, gridProperties: { columnCount: nextLength } },
+          fields: "gridProperties.columnCount",
+        },
+      }]);
+    }
+    await updateSheetValues(
+      this.spreadsheetId,
+      `${quoteTab(tab)}!${columnLetter(table.headers.length)}1:${columnLetter(nextLength - 1)}1`,
+      [missing],
+    );
   }
 }
 
@@ -264,6 +309,22 @@ class LocalSheetBackend implements SheetBackend {
     });
   }
 
+  async patchRow(tab: string, headers: string[], values: Record<string, string>, rowNumber: number): Promise<void> {
+    if (!Number.isInteger(rowNumber) || rowNumber < 2) throw new Error("Invalid sheet row");
+    await withFileLock(this.file, async () => {
+      const workbook = await readWorkbook(this.file);
+      const table = workbook.tabs[tab];
+      if (!table) throw new SheetTabMissingError(tab);
+      const row = table.rows[rowNumber - 2];
+      if (!row) throw new Error("Sheet row not found");
+      for (const [header, value] of Object.entries(values)) {
+        if (!headers.includes(header) || !table.headers.includes(header)) throw new Error("Missing sheet column");
+        row[header] = value;
+      }
+      await writeWorkbook(this.file, workbook);
+    });
+  }
+
   async ensureTable(tab: string, headers: string[]): Promise<void> {
     await withFileLock(this.file, async () => {
       const workbook = await readWorkbook(this.file);
@@ -273,6 +334,18 @@ class LocalSheetBackend implements SheetBackend {
       } else if (existing.headers.length === 0) {
         existing.headers = [...headers];
       }
+      await writeWorkbook(this.file, workbook);
+    });
+  }
+
+  async ensureColumns(tab: string, headers: string[]): Promise<void> {
+    await withFileLock(this.file, async () => {
+      const workbook = await readWorkbook(this.file);
+      const table = workbook.tabs[tab];
+      if (!table) throw new SheetTabMissingError(tab);
+      const missing = [...new Set(headers)].filter((header) => !table.headers.includes(header));
+      if (!missing.length) return;
+      table.headers.push(...missing);
       await writeWorkbook(this.file, workbook);
     });
   }

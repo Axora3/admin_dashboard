@@ -1,60 +1,91 @@
 import Link from "next/link";
-import { StoreOverview } from "@/components/admin/store-overview";
-import { hasPermission, type Permission } from "@/lib/platform/permissions";
 import { notFound } from "next/navigation";
-
-const SECTION_PERMISSION: Record<string, Permission> = {
-  overview: "analytics.read", products: "products.read", categories: "products.read", orders: "orders.read",
-  customers: "customers.read", settings: "settings.manage", "audit-logs": "audit.read",
-};
 import { withStoreAdmin } from "@/lib/auth/store-scope";
-import { getRepository } from "@/lib/data";
-import { StoreMutationForm } from "@/components/admin/store-mutation-form";
-
-const inputClass = "w-full rounded-lg border border-slate-200 bg-white p-2.5";
-function Field({ name, label, value = "", type = "text" }: { name: string; label: string; value?: string | number; type?: string }) { return <label className="grid gap-1 text-sm">{label}<input className={inputClass} name={name} type={type} defaultValue={value} min={type === "number" ? 0 : undefined} step={type === "number" ? "any" : undefined} /></label>; }
-function Box({ children }: { children: React.ReactNode }) { return <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">{children}</section>; }
-export default async function StorePage({ params, searchParams }: { params: Promise<{ section?: string[] }>; searchParams: Promise<Record<string,string | undefined>> }) {
+import { getStoreRegistry } from "@/lib/registry";
+import { siteIntegrationConfig } from "@/lib/google/site-config";
+import { canonicalBusinessType, modulesForBusiness } from "@/lib/google/schema-registry";
+import { readCustomerModule, type CustomerRecord } from "@/lib/customer/data";
+import { fieldsForSite } from "@/lib/customer/schema";
+import { MODULE_LABELS, BUSINESS_LABELS, modulePermission } from "@/lib/customer/modules";
+import { hasPermission } from "@/lib/platform/permissions";
+import { RecordManager } from "@/components/customer/record-manager";
+import { SiteConfiguration } from "@/components/customer/site-configuration";
+import { SubscriptionPanel } from "@/components/customer/subscription-panel";
+import { listPlatformAuditLogs } from "@/lib/registry/audit-store";
+export default async function CustomerSitePage({ params }: { params: Promise<{ section?: string[] }> }) {
   const { section = [] } = await params;
-  const query = await searchParams;
-  const page = Math.max(1, Number(query.page) || 1);
+  if (section.length > 1) notFound();
   const current = section[0] || "overview";
-  // "analytics" and "notifications" have dedicated routes.
-  if (section.length > 1 || !SECTION_PERMISSION[current]) notFound();
-  return withStoreAdmin(async admin => {
-    // Server-side read authorization; storeId always comes from the verified assignment.
-    if (!hasPermission(admin, SECTION_PERMISSION[current], admin.storeId)) notFound();
-    const repo = getRepository();
-    const store = await repo.getStore(admin.storeId);
+  return withStoreAdmin(async actor => {
+    const store = await getStoreRegistry().get(actor.storeId);
     if (!store) notFound();
-    const titles: Record<string,string> = { overview: store.name, products: "Бүтээгдэхүүн", categories: "Ангилал", orders: "Захиалга", customers: "Хэрэглэгчид", settings: "Дэлгүүрийн тохиргоо", "audit-logs": "Үйлдлийн түүх" };
+    const config = siteIntegrationConfig(store), type = canonicalBusinessType(store.businessType);
+    const title = current === "overview" ? store.name : current === "settings" ? "Сайтын тохиргоо" : current === "subscription" ? "Захиалга ба төлбөр" : current === "audit-logs" ? "Үйлдлийн түүх" : MODULE_LABELS[current as keyof typeof MODULE_LABELS];
     let content: React.ReactNode;
     if (current === "overview") {
-      content = <StoreOverview storeId={admin.storeId} currency={store.currency} />;
-    } else if (current === "products") {
-      const products = await repo.listProducts({ storeId: admin.storeId, page, pageSize: 20, search: query.search });
-      const categories = await repo.listCategories(admin.storeId);
-      const edit = query.edit ? await repo.getProduct(query.edit) : null;
-      if (query.edit && !edit) notFound();
-      content = <div className="grid gap-6 lg:grid-cols-[1fr_360px]"><Box><form className="mb-4 flex gap-2"><input className={inputClass} name="search" defaultValue={query.search} placeholder="Нэрээр хайх" aria-label="Бүтээгдэхүүн хайх" /><button className="rounded border px-3">Хайх</button></form>{products.rows.map(p => <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 border-t py-4"><div><Link href={`?edit=${encodeURIComponent(p.id)}`} className="font-medium text-teal-800">{p.name} ↗</Link><p className="text-sm text-slate-500">{p.price.toLocaleString()} ₮ · Үлдэгдэл {p.stock} · {p.isActive ? "Идэвхтэй" : "Идэвхгүй"}</p></div><StoreMutationForm operation="product.delete" id={p.id} label="Устгах" /></div>)}{!products.total && <p>Бүтээгдэхүүн олдсонгүй.</p>}<Pages page={page} count={products.pageCount} search={query.search} /></Box><Box><h2 className="mb-4 text-lg font-semibold">{edit ? "Бүтээгдэхүүн засах" : "Бүтээгдэхүүн нэмэх"}</h2><StoreMutationForm key={edit?.id || "new"} operation="product.save" id={edit?.id}>
-        <Field name="name" label="Нэр" value={edit?.name} /><Field name="slug" label="URL нэр" value={edit?.slug} /><Field name="description" label="Тайлбар" value={edit?.description} /><Field name="price" label="Үнэ" type="number" value={edit?.price ?? 0} /><Field name="salePrice" label="Хямдарсан үнэ" type="number" value={edit?.salePrice ?? ""} /><Field name="stock" label="Үлдэгдэл" type="number" value={edit?.stock ?? 0} /><Field name="sku" label="SKU" value={edit?.sku} /><label className="grid gap-1 text-sm">Ангилал<select className={inputClass} name="categoryId" defaultValue={edit?.categoryId ?? ""}><option value="">Ангилалгүй</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="grid gap-1 text-sm">Зургийн URL (мөр бүрт нэг)<textarea className={inputClass} name="images" defaultValue={edit?.images.join("\n")} /></label><label className="block text-sm"><input type="checkbox" name="isActive" defaultChecked={edit?.isActive ?? true} /> Идэвхтэй</label>
-      </StoreMutationForm>{edit && <Link href="/store-admin/products" className="mt-4 block text-sm text-teal-800">Шинээр нэмэх →</Link>}</Box></div>;
-    } else if (current === "categories") {
-      const categories = await repo.listCategories(admin.storeId);
-      content = <div className="grid gap-4 md:grid-cols-2">{[null, ...categories].map(c => <Box key={c?.id ?? "new"}><h2 className="mb-3 font-semibold">{c ? "Ангилал засах" : "Ангилал нэмэх"}</h2><StoreMutationForm operation="category.save" id={c?.id}><Field name="name" label="Нэр" value={c?.name} /><Field name="description" label="Тайлбар" value={c?.description} /><Field name="sortOrder" label="Дараалал" type="number" value={c?.sortOrder ?? 0} /></StoreMutationForm>{c && <div className="mt-3"><StoreMutationForm operation="category.delete" id={c.id} label="Устгах" /></div>}</Box>)}</div>;
-    } else if (current === "orders") {
-      const orders = await repo.listOrders({ storeId: admin.storeId, page, pageSize: 20 });
-      content = <Box>{orders.rows.map(o => <div key={o.id} className="grid gap-3 border-b py-4 md:grid-cols-2"><div><h2 className="font-semibold">{o.orderNumber} · {o.totalAmount.toLocaleString()} ₮</h2><p>{o.customerName} · {o.customerPhone}</p><p className="text-sm text-slate-500">{o.customerAddress} · {o.paymentStatus}</p>{o.items.map(i => <p key={i.id} className="text-sm">{i.productName} × {i.quantity}</p>)}</div><StoreMutationForm operation="order.status" id={o.id}><label className="grid gap-1 text-sm">Захиалгын төлөв<select name="status" className={inputClass} defaultValue={o.orderStatus}>{["new","confirmed","processing","shipped","delivered","cancelled"].map(s => <option key={s}>{s}</option>)}</select></label></StoreMutationForm></div>)}{!orders.total && <p>Захиалга байхгүй.</p>}<Pages page={page} count={orders.pageCount} /></Box>;
-    } else if (current === "customers") {
-      const customers = await repo.listCustomers({ storeId: admin.storeId, page, pageSize: 20, search: query.search });
-      content = <Box><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr>{["Нэр","Утас","Имэйл","Захиалга","Нийт дүн"].map(t => <th key={t} className="p-3">{t}</th>)}</tr></thead><tbody>{customers.rows.map(c => <tr key={c.id} className="border-t">{[c.name,c.phone,c.email,c.orderCount,`${c.totalSpent.toLocaleString()} ₮`].map((v,i) => <td key={i} className="p-3">{v}</td>)}</tr>)}</tbody></table></div>{!customers.total && <p>Хэрэглэгч байхгүй.</p>}<Pages page={page} count={customers.pageCount} /></Box>;
-    } else if (current === "settings") {
-      content = <Box><StoreMutationForm operation="settings.save"><div className="grid gap-4 md:grid-cols-2"><Field name="name" label="Дэлгүүрийн нэр" value={store.name} /><Field name="email" label="Имэйл" type="email" value={store.email} /><Field name="phone" label="Утас" value={store.phone} /><Field name="address" label="Хаяг" value={store.address} /><Field name="description" label="Тайлбар" value={store.description} /></div></StoreMutationForm></Box>;
+      const domain = store.domains.find(d => d.isPrimary && d.status === "active" && d.verificationStatus === "verified");
+      const moduleItems = config.enabled_modules.filter(module => MODULE_LABELS[module]);
+      const userRole = actor.siteRole === "viewer" ? "Зөвхөн харах эрх" : actor.siteRole === "editor" ? "Засварлах эрх" : "Сайтын эзэмшигч";
+      content = <div className="space-y-6">
+        <section className="overflow-hidden rounded-2xl border border-[#E9EAF0] bg-white shadow-sm">
+          <div className="grid lg:grid-cols-[minmax(0,1.3fr)_minmax(250px,0.7fr)]">
+            <div className="p-6 md:p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#D95751]">Таны AXORA сайт</p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[#191A20] md:text-3xl">{store.name}</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-[#777B85]">Сайтын мэдээлэл, бүтээгдэхүүн болон тохиргоогоо нэг дороос удирдаарай.</p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                {domain ? <a className="inline-flex items-center gap-2 rounded-lg bg-[#F16B65] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#DF5D57]" href={`https://${domain.domain}`} target="_blank" rel="noopener noreferrer">Вэбсайтаа нээх <span aria-hidden>↗</span></a> : <Link className="inline-flex items-center gap-2 rounded-lg bg-[#F16B65] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#DF5D57]" href="/store-admin/settings">Сайтын тохиргоо <span aria-hidden>→</span></Link>}
+                {moduleItems[0] ? <Link className="inline-flex items-center gap-2 rounded-lg border border-[#E9EAF0] px-4 py-2.5 text-sm font-semibold text-[#444751] transition hover:border-[#F16B65]" href={`/store-admin/${moduleItems[0]}`}>Мэдээллээ удирдах <span aria-hidden>→</span></Link> : null}
+              </div>
+            </div>
+            <div className="border-t border-[#E9EAF0] bg-[#FAFAFB] p-6 lg:border-l lg:border-t-0 lg:p-8">
+              <div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold text-[#454852]">Сайтын мэдээлэл</p><span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${domain ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{domain ? "Идэвхтэй домэйн" : "Домэйн холбогдоогүй"}</span></div>
+              <dl className="mt-5 space-y-4 text-sm">
+                <div><dt className="text-xs text-[#777B85]">Домэйн</dt><dd className="mt-1 break-all font-medium text-[#252730]">{domain ? domain.domain : "Баталгаажсан домэйн алга"}</dd></div>
+                <div><dt className="text-xs text-[#777B85]">Бизнесийн төрөл</dt><dd className="mt-1 font-medium text-[#252730]">{BUSINESS_LABELS[type]}</dd></div>
+                <div><dt className="text-xs text-[#777B85]">Таны эрх</dt><dd className="mt-1 font-medium text-[#252730]">{userRole}</dd></div>
+              </dl>
+            </div>
+          </div>
+        </section>
+
+        <section aria-label="Сайтын товч мэдээлэл" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {[
+            { label: "Идэвхтэй боломж", value: String(moduleItems.length), detail: "Таны сайтад тохируулсан" },
+            { label: "Сайтын холболт", value: config.integration_status === "connected" ? "Хэвийн" : config.integration_status === "local" ? "Туршилт" : config.integration_status === "provisioning" ? "Тохируулж байна" : "Шалгах шаардлагатай", detail: "Мэдээллийн сангийн төлөв" },
+            { label: "Бүртгэлийн дугаар", value: store.id, detail: "AXORA дэмжлэгтэй холбогдоход ашиглана", compact: true },
+          ].map(card => <article key={card.label} className="rounded-xl border border-[#E9EAF0] bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-[#777B85]">{card.label}</p>
+            <p className={`mt-3 truncate font-semibold tracking-tight text-[#202129] ${card.compact ? "text-sm" : "text-2xl"}`} title={card.value}>{card.value}</p>
+            <p className="mt-1.5 text-xs text-[#9295A0]">{card.detail}</p>
+          </article>)}
+        </section>
+
+        <section>
+          <div className="mb-4 flex items-end justify-between gap-3"><div><h2 className="text-lg font-semibold text-[#202129]">Сайтын хэрэгслүүд</h2><p className="mt-1 text-sm text-[#777B85]">Танд нээлттэй боломжууд</p></div><span className="text-xs text-[#9295A0]">{moduleItems.length} боломж</span></div>
+          {moduleItems.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{moduleItems.map(module => <Link key={module} href={`/store-admin/${module}`} className="group flex min-h-[102px] items-center gap-4 rounded-xl border border-[#E9EAF0] bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-[#F3B1AD] hover:shadow-md">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#FFF0EF] text-[#D95751]"><span className="text-lg" aria-hidden>↗</span></span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#252730]">{MODULE_LABELS[module]}</span><span className="mt-1 block text-xs text-[#858894]">Энэ сайтын мэдээллийг удирдах</span></span>
+            <span className="text-lg text-[#B7BAC3] transition group-hover:translate-x-0.5 group-hover:text-[#D95751]" aria-hidden>→</span>
+          </Link>)}</div> : <p className="rounded-xl border border-dashed border-[#D8DAE0] bg-white p-8 text-center text-sm text-[#777B85]">Одоогоор удирдах боломж тохируулаагүй байна.</p>}
+        </section>
+      </div>;
+    } else if (current === "subscription") content = <SubscriptionPanel siteId={store.id} />;
+    else if (current === "settings") content = <div className="space-y-5"><section className="rounded-xl border bg-white p-6"><h2 className="font-semibold">{store.name}</h2><p className="mt-2 text-sm text-slate-500">{BUSINESS_LABELS[type]} · {store.id}</p><p className="mt-3 text-sm">Эзэмшигч: {store.ownerName || "Тохируулаагүй"} · {store.ownerEmail}</p><p className="mt-2 text-sm text-slate-500">Sheets: {config.integration_status} · Бүтцийн хувилбар {config.schema_version} · Тохиргооны хувилбар {config.configuration_version}</p></section><SiteConfiguration key={store.id + ":" + config.configuration_version} siteId={store.id} allowed={modulesForBusiness(type).filter(id => MODULE_LABELS[id]).map(id => ({ id,label:MODULE_LABELS[id]! }))} enabled={config.enabled_modules} canManage={hasPermission(actor,"settings.manage",store.id)} /></div>;
+    else if (current === "audit-logs") {
+      if (!hasPermission(actor,"audit.read",store.id)) notFound();
+      const logs = await listPlatformAuditLogs({storeId:store.id,pageSize:100},new Map([[store.id,store.name]]));
+      content = <section className="rounded-xl border bg-white p-5">{logs.rows.length ? logs.rows.map(log => <div key={log.id} className="border-b py-4 text-sm"><p>{log.actorName} · {log.action}</p><p className="mt-1 text-xs text-slate-500">{new Date(log.createdAt).toLocaleString("mn-MN",{timeZone:"Asia/Ulaanbaatar"})}</p></div>) : <p className="text-sm text-slate-500">Үйлдлийн бүртгэл байхгүй.</p>}</section>;
     } else {
-      const logs = await repo.listAuditLogs({ storeId: admin.storeId, page, pageSize: 20 });
-      content = <Box>{logs.rows.map(l => <details key={l.id} className="border-b py-4"><summary className="cursor-pointer">{l.actorName} · {l.action} · {new Date(l.createdAt).toLocaleString("mn-MN", { timeZone: "Asia/Ulaanbaatar" })}</summary><pre className="mt-3 overflow-auto rounded bg-slate-50 p-3 text-xs">{JSON.stringify(l.metadata,null,2)}</pre></details>)}{!logs.total && <p>Үйлдлийн бүртгэл байхгүй.</p>}<Pages page={page} count={logs.pageCount} /></Box>;
+      if (!title || !config.enabled_modules.includes(current as never) || !hasPermission(actor,modulePermission(current),store.id)) notFound();
+      // Inventory edits the same Products.stock consumed by the customer website; historical journal rows are not stock commands.
+      const resource = current === "inventory" ? "products" : current;
+      let records: CustomerRecord[] = [], failed = false;
+      try { records = await readCustomerModule(actor,store,resource); } catch { failed = true; }
+      let fields = fieldsForSite(store,resource).filter(field => field.key !== "paymentStatus");
+      if (current === "inventory") fields = fields.filter(field => field.key === "stock");
+      content = <>{current === "inventory" ? <p className="mb-4 rounded-lg border bg-white p-4 text-sm text-slate-600">Энд бүтээгдэхүүний бодит үлдэгдлийг өөрчилнө. Түүхийн журнал нь тусдаа бүртгэл; журналын мөр засах нь үлдэгдэл өөрчлөх команд биш.</p> : null}<RecordManager key={store.id + ":" + current} siteId={store.id} module={resource} fields={fields} initialRecords={records} initialError={failed} canWrite={hasPermission(actor,modulePermission(current,true),store.id)} updateOnly={current === "inventory"} /></>;
     }
-    return <div className="space-y-6"><header><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-teal-700">{store.name} / Store workspace</p><h1 className="text-3xl font-semibold">{titles[current]}</h1></header>{content}</div>;
+    return <div className="space-y-6"><header><p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#D95751]">{BUSINESS_LABELS[type]}</p><h1 className="text-2xl font-semibold tracking-tight text-[#202129] md:text-3xl">{current === "overview" ? "Тойм" : title}</h1></header>{content}</div>;
   });
 }
-function Pages({ page, count, search }: { page: number; count: number; search?: string }) { return count > 1 ? <nav className="mt-4 flex justify-between text-sm"><Link href={`?page=${Math.max(1,page-1)}&search=${encodeURIComponent(search ?? "")}`}>← Өмнөх</Link><span>{page} / {count}</span><Link href={`?page=${Math.min(count,page+1)}&search=${encodeURIComponent(search ?? "")}`}>Дараах →</Link></nav> : null; }

@@ -6,6 +6,7 @@ import type { SheetsConnectionStatus } from "@/lib/google/types";
  * credentials, error internals or configuration.
  */
 const STATES: Record<SheetsConnectionStatus, { label: string; dot: string; warning?: string }> = {
+  provisioning: { label: "Тохируулж байна", dot: "bg-amber-500", warning: "Google Sheets холболтыг шалгаж байна." },
   connected: { label: "Холболт хэвийн", dot: "bg-emerald-500" },
   local: { label: "Туршилтын горим", dot: "bg-amber-500", warning: "Дэлгүүр туршилтын (local) өгөгдөл ашиглаж байна." },
   error: { label: "Холболтод алдаа гарсан", dot: "bg-red-600", warning: "Дэлгүүрийн өгөгдөлтэй холбогдоход алдаа гарлаа. Мэдээлэл түр шинэчлэгдэхгүй байж магадгүй. AXORA Super Admin-д автоматаар мэдэгдсэн." },

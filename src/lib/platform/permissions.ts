@@ -48,12 +48,14 @@ export function permissionsFor(role: string): readonly Permission[] {
 }
 
 export function hasPermission(
-  admin: Pick<AdminUser, "role" | "storeId" | "isSuperAdmin">,
+  admin: Pick<AdminUser, "role" | "storeId" | "isSuperAdmin" | "siteRole">,
   permission: Permission,
   storeId: string,
 ): boolean {
   if (admin.isSuperAdmin) return true;
   if (!isActiveRole(admin.role) || !admin.storeId || admin.storeId !== storeId) return false;
+  if (admin.siteRole === "viewer" && permission.endsWith(".manage")) return false;
+  if (admin.siteRole === "editor" && permission === "settings.manage") return false;
   return permissionsFor(admin.role).includes(permission);
 }
 

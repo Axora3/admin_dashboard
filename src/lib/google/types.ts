@@ -15,6 +15,7 @@ export type SheetResource =
 
 export type SheetsConnectionStatus =
   | "unconfigured"
+  | "provisioning"
   | "connected"
   | "error"
   | "local";
@@ -50,6 +51,11 @@ export interface StoreSheetsConfig {
   lastSyncAt: string | null;
   lastCheckedAt: string | null;
   lastError: string | null;
+  /** Additive JSON registry fields; optional for existing v1 records. */
+  schemaVersion?: number;
+  enabledModules?: string[];
+  lastSuccessfulSync?: string | null;
+  configurationVersion?: number;
 }
 
 /** Safe subset attached to the public Store object. */
@@ -63,6 +69,10 @@ export interface StoreSheetsMeta {
   tabs: StoreSheetTabs;
   /** Column mapping is not secret and is needed to edit the mapping. */
   columns: StoreSheetColumns;
+  schemaVersion: number;
+  enabledModules: string[];
+  lastSuccessfulSync: string | null;
+  configurationVersion: number;
 }
 
 export interface StoreSheetsInput {
@@ -147,6 +157,7 @@ export const DEFAULT_COLUMNS: StoreSheetColumns = {
     totalAmount: "TotalAmount",
     paymentStatus: "PaymentStatus",
     orderStatus: "OrderStatus",
+    delivery: "Delivery",
     items: "Items",
     createdAt: "CreatedAt",
     updatedAt: "UpdatedAt",
@@ -207,6 +218,10 @@ export function defaultSheetsConfig(): StoreSheetsConfig {
     lastSyncAt: null,
     lastCheckedAt: null,
     lastError: null,
+    schemaVersion: 1,
+    enabledModules: ["products", "categories", "orders", "customers", "inventory", "settings"],
+    lastSuccessfulSync: null,
+    configurationVersion: 1,
   };
 }
 
@@ -230,6 +245,10 @@ export function safeSheetsMeta(config: StoreSheetsConfig): StoreSheetsMeta {
     spreadsheetName: config.spreadsheetName,
     tabs: { ...config.tabs },
     columns: cloneColumns(config.columns),
+    schemaVersion: config.schemaVersion ?? 1,
+    enabledModules: [...(config.enabledModules ?? ["products", "categories", "orders", "customers", "inventory", "settings"])],
+    lastSuccessfulSync: config.lastSuccessfulSync ?? config.lastSyncAt,
+    configurationVersion: config.configurationVersion ?? 1,
   };
 }
 

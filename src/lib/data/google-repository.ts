@@ -1,6 +1,7 @@
 import "server-only";
 import { storeScope } from "@/lib/auth/store-scope";
 import { assertOperationLock } from "@/lib/platform/locks";
+import { deliverySchema, deliveryLocationSchema } from "@/lib/delivery/validation";
 
 import type {
   AuditFilters,
@@ -11,6 +12,7 @@ import type {
   CreateStoreInput,
   Customer,
   CustomerFilters,
+  DeliveryDetails,
   Domain,
   DomainFilters,
   DomainInput,
@@ -69,6 +71,7 @@ import {
   type StoreSheetsConfig,
   type StoreSheetsInput,
 } from "@/lib/google/types";
+import { canonicalBusinessType, modulesForBusiness, resourceSchemas, SHEET_SCHEMA_VERSION } from "@/lib/google/schema-registry";
 import { GoogleSheetsError } from "@/lib/google/sheets-client";
 import { getStoreRegistry, type StoreRecord } from "@/lib/registry";
 import { listPlatformAuditLogs, recordPlatformAudit } from "@/lib/registry/audit-store";
@@ -179,8 +182,12 @@ async function readResourceTable(
   const tab = tabFor(store, resource);
   try {
     const table = await backend.readTable(tab);
-    cache().set(key, { expiresAt: Date.now() + CACHE_TTL_MS, table });
-    return table;
+    const deletedHeader = table.headers.find(header => header.trim().toLowerCase() === "deletedat");
+    const visibleTable = deletedHeader
+      ? { ...table, rows: table.rows.filter(row => !String(row.values[deletedHeader] ?? "").trim()) }
+      : table;
+    cache().set(key, { expiresAt: Date.now() + CACHE_TTL_MS, table: visibleTable });
+    return visibleTable;
   } catch (error) {
     if (options.optional && error instanceof SheetTabMissingError) {
       return { headers: [], rows: [] };
@@ -233,6 +240,21 @@ function valuesFor(
   return out;
 }
 
+/** Patch only supplied fields; order fulfilment must preserve every other cell. */
+function patchValuesFor(
+  store: StoreRecord,
+  resource: SheetResource,
+  data: Record<string, unknown>,
+  headers: string[],
+): Record<string, string> {
+  const mapping = mappingFor(store, resource);
+  const defaults = DEFAULT_COLUMNS[resource];
+  return Object.fromEntries(Object.entries(data).map(([field, value]) => [
+    resolveHeader(headers, mapping, field, defaults) ?? mapping[field] ?? defaults[field],
+    serializeValue(value),
+  ]));
+}
+
 function rowNumberFor(
   table: SheetTable,
   store: StoreRecord,
@@ -257,8 +279,28 @@ async function writeResourceRow(
   rowNumber?: number | null,
 ): Promise<void> {
   assertOperationLock();
-  const table = await ensureResourceTable(store, resource);
+  let table = await ensureResourceTable(store, resource);
   const backend = backendFor(store);
+  if (resource === "orders") {
+    // A legacy Orders sheet is upgraded only when the feature is written.
+    // Preserve its custom mapping and append, never reorder, existing columns.
+    const appendable = ["delivery", "updatedAt", "orderStatus", "paymentStatus"].map((field) =>
+      resolveHeader(table.headers, mappingFor(store, resource), field, DEFAULT_COLUMNS.orders)
+        ?? mappingFor(store, resource)[field] ?? DEFAULT_COLUMNS.orders[field],
+    ).filter((header) => Object.prototype.hasOwnProperty.call(values, header) && !table.headers.includes(header));
+    if (appendable.length) {
+      await backend.ensureColumns(tabFor(store, resource), appendable);
+      invalidate(store.id, resource);
+      table = await readResourceTable(store, resource);
+    }
+  }
+  if (resource === "orders" && rowNumber) {
+    // Patch only requested cells: custom formula columns must not be flattened
+    // into their displayed values by the general whole-row write adapter.
+    await backend.patchRow(tabFor(store, resource), table.headers, values, rowNumber);
+    invalidate(store.id, resource);
+    return;
+  }
   const merged = rowNumber
     ? {
         ...(table.rows.find((row) => row.rowNumber === rowNumber)?.values ?? {}),
@@ -289,15 +331,17 @@ async function findStoreForResource(
   resource: SheetResource,
   id: string,
   idField: string,
+  storeId?: string,
 ): Promise<{ store: StoreRecord; row: { rowNumber: number; values: Record<string, string> } } | null> {
-  const stores = await getStoreRegistry().list();
+  const stores = storeId ? [await requireStore(storeId)] : await getStoreRegistry().list();
   for (const store of stores) {
     try {
       const table = await readResourceTable(store, resource, { optional: true });
       if (table.headers.length === 0) continue;
       const row = rowNumberFor(table, store, resource, idField, id);
       if (row) return { store, row };
-    } catch {
+    } catch (error) {
+      if (storeId || storeScope.getStore()) throw error;
       // A broken store must not hide records in other stores.
     }
   }
@@ -378,6 +422,10 @@ function safeSheetsMeta(record: StoreRecord, error?: unknown) {
     spreadsheetName: record.sheets.spreadsheetName,
     tabs: { ...record.sheets.tabs },
     columns: cloneColumns(record.sheets.columns),
+    schemaVersion: record.sheets.schemaVersion ?? SHEET_SCHEMA_VERSION,
+    enabledModules: record.sheets.enabledModules?.length ? [...record.sheets.enabledModules] : modulesForBusiness(canonicalBusinessType(record.businessType)),
+    lastSuccessfulSync: record.sheets.lastSuccessfulSync ?? record.sheets.lastSyncAt,
+    configurationVersion: record.sheets.configurationVersion ?? 1,
   };
 }
 
@@ -627,6 +675,7 @@ function orderData(order: Order): Record<string, unknown> {
     totalAmount: order.totalAmount,
     paymentStatus: order.paymentStatus,
     orderStatus: order.orderStatus,
+    delivery: order.delivery,
     items: order.items,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
@@ -686,6 +735,8 @@ async function createStoreOrder(input: CheckoutInput): Promise<Order> {
   const store = await requireStore(input.storeSlug);
   if (store.status !== "active") throw new Error("Дэлгүүр түр хаалттай байна.");
   const settings = await getStoreSettingsRecord(store);
+  // Public checkout may supply a destination, never driver or delivery method.
+  const destination = deliveryLocationSchema.parse(input.delivery ?? { latitude: null, longitude: null });
   if (!settings.visibility.published) {
     throw new Error("Дэлгүүрийн website нийтэд нээлттэй биш байна.");
   }
@@ -757,6 +808,14 @@ async function createStoreOrder(input: CheckoutInput): Promise<Order> {
     createdAt,
     updatedAt: createdAt,
     items,
+    delivery: {
+      method: settings.shipping.enabled ? "store_delivery" : "pickup",
+      latitude: settings.shipping.enabled ? destination.latitude : null,
+      longitude: settings.shipping.enabled ? destination.longitude : null,
+      driverName: "",
+      driverPhone: "",
+      note: "",
+    },
   };
 
   // Write order first. If a later stock write fails, the order is still visible
@@ -850,13 +909,32 @@ async function prepareStoreSheets(store: StoreRecord): Promise<StoreRecord> {
   return store;
 }
 
+async function prepareRegisteredSiteSheets(store: StoreRecord, businessType: ReturnType<typeof canonicalBusinessType>): Promise<void> {
+  const backend = createSheetBackend({
+    storeId: store.id,
+    spreadsheetId: store.sheets.spreadsheetId,
+    mode: sheetsMode(),
+  });
+  const existingTabs = new Set(await backend.listTabs());
+  for (const resource of resourceSchemas(businessType)) {
+    const headers = resource.fields.map(field => field.header);
+    if (existingTabs.has(resource.tab)) await backend.ensureColumns(resource.tab, headers);
+    else await backend.ensureTable(resource.tab, headers);
+  }
+}
+
 async function applyStoreSheets(
   record: StoreRecord,
   input: StoreSheetsInput,
   options: { failOnError: boolean },
 ): Promise<StoreRecord> {
   const mode = sheetsMode();
-  const merged = mergeSheetsInput(record, input);
+  const merged = {
+    ...mergeSheetsInput(record, input),
+    schemaVersion: record.sheets.schemaVersion ?? SHEET_SCHEMA_VERSION,
+    enabledModules: record.sheets.enabledModules?.length ? record.sheets.enabledModules : modulesForBusiness(canonicalBusinessType(record.businessType)),
+    configurationVersion: (record.sheets.configurationVersion ?? 0) + 1,
+  };
   const registry = getStoreRegistry();
 
   if (mode === "google" && !merged.spreadsheetId) {
@@ -871,12 +949,19 @@ async function applyStoreSheets(
 
   try {
     const store = await requireStore(record.id);
-    await prepareStoreSheets(store);
+    const businessType = canonicalBusinessType(record.businessType);
+    if (businessType === "online_store") await prepareStoreSheets(store);
+    else await prepareRegisteredSiteSheets(store, businessType);
+    const completedAt = nowIso();
     return await registry.updateSheets(record.id, {
       ...store.sheets,
       connectionStatus: mode === "google" ? "connected" : "local",
-      lastCheckedAt: nowIso(),
-      lastSyncAt: nowIso(),
+      lastCheckedAt: completedAt,
+      lastSyncAt: completedAt,
+      lastSuccessfulSync: completedAt,
+      schemaVersion: merged.schemaVersion,
+      enabledModules: merged.enabledModules,
+      configurationVersion: merged.configurationVersion,
       lastError: null,
     });
   } catch (error) {
@@ -1432,8 +1517,8 @@ export const googleSheetsRepository: Repository = {
     return paginate(rows, filters.page ?? 1, filters.pageSize ?? 20);
   },
 
-  async getOrder(id: string): Promise<Order | null> {
-    const found = await findStoreForResource("orders", id, "id");
+  async getOrder(id: string, storeId?: string): Promise<Order | null> {
+    const found = await findStoreForResource("orders", id, "id", storeId);
     if (!found) return null;
     return rowToOrder(
       found.store.id,
@@ -1460,12 +1545,25 @@ export const googleSheetsRepository: Repository = {
     await writeResourceRow(
       found.store,
       "orders",
-      valuesFor(found.store, "orders", orderData(next), table.headers),
+      patchValuesFor(found.store, "orders", { orderStatus: next.orderStatus, updatedAt: next.updatedAt }, table.headers),
       found.row.rowNumber,
     );
     if (status === "cancelled" && existing.orderStatus !== "cancelled") {
       await restoreStockForOrder(found.store, existing, "Захиалга цуцлагдсан");
     }
+  },
+
+  async updateOrderDelivery(id: string, input: DeliveryDetails, storeId?: string): Promise<void> {
+    const delivery = deliverySchema.parse(input);
+    const found = await findStoreForResource("orders", id, "id", storeId);
+    if (!found) throw new Error("Захиалга олдсонгүй.");
+    const table = await readResourceTable(found.store, "orders");
+    await writeResourceRow(
+      found.store,
+      "orders",
+      patchValuesFor(found.store, "orders", { delivery, updatedAt: nowIso() }, table.headers),
+      found.row.rowNumber,
+    );
   },
 
   async updatePaymentStatus(id: string, status: PaymentStatus): Promise<void> {
@@ -1483,10 +1581,10 @@ export const googleSheetsRepository: Repository = {
     await writeResourceRow(
       found.store,
       "orders",
-      valuesFor(
+      patchValuesFor(
         found.store,
         "orders",
-        orderData({ ...existing, paymentStatus: status, updatedAt: nowIso() }),
+        { paymentStatus: status, updatedAt: nowIso() },
         table.headers,
       ),
       found.row.rowNumber,

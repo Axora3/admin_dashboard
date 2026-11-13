@@ -73,13 +73,13 @@ test('notification reads are scoped server-side to the assigned store and audien
   const calls = [];
   const builder = () => { const q = { select() { return q; }, eq(k, v) { calls.push([k, v]); return q; }, order() { return q; }, range: async () => ({ data: [], error: null }), maybeSingle: async () => ({ data: null, error: null }), upsert: async () => ({ error: null }) }; return q; };
   const svc = load('src/lib/platform/notifications.ts', { 'server-only': {}, './db': { checked: r => r, platformDb: () => ({ from: () => builder() }), platformEnabled: () => true }, './notification-rules': notificationRules });
-  await svc.notificationPage({ id: 'u', isSuperAdmin: false, role: 'store_admin', storeId: 'store-a' });
+  await svc.notificationPage({ id: '00000000-0000-4000-8000-000000000001', isSuperAdmin: false, role: 'store_admin', storeId: 'store-a' });
   assert.ok(calls.some(([k, v]) => k === 'store_id' && v === 'store-a'));
   assert.ok(calls.some(([k, v]) => k === 'audience' && v === 'store'));
   calls.length = 0;
-  await svc.notificationPage({ id: 's', isSuperAdmin: true, role: 'super_admin' });
+  await svc.notificationPage({ id: '00000000-0000-4000-8000-000000000002', isSuperAdmin: true, role: 'super_admin' });
   assert.equal(calls.some(([k]) => k === 'store_id' || k === 'audience'), false);
-  await assert.rejects(svc.notificationPage({ id: 'u', isSuperAdmin: false, role: 'store_admin', storeId: null }), /No store assignment/);
+  await assert.rejects(svc.notificationPage({ id: '00000000-0000-4000-8000-000000000001', isSuperAdmin: false, role: 'store_admin', storeId: null }), /No store assignment/);
   await assert.rejects(svc.publishNotification({ key: 'k', storeId: null, category: 'order', title: 't', audience: 'store' }), /requires a store/);
 });
 

@@ -4,7 +4,7 @@ import { withPlatformLock } from "@/lib/platform/locks";
 import { enforceLimit, currentMonthStart } from "@/lib/platform/subscriptions";
 import { invalidateStoreCache } from "./google-repository";
 import { getStoreRegistry } from "@/lib/registry";
-const WRITES = new Set(["createProduct","updateProduct","deleteProduct","bulkUpdateProducts","createCategory","updateCategory","deleteCategory","updateOrderStatus","updatePaymentStatus","createOrder","adjustStock","updateStoreSettings","updateStoreSheets","updateStore","setStoreStatus","deleteStore"]);
+const WRITES = new Set(["createProduct","updateProduct","deleteProduct","bulkUpdateProducts","createCategory","updateCategory","deleteCategory","updateOrderStatus","updateOrderDelivery","updatePaymentStatus","createOrder","adjustStock","updateStoreSettings","updateStoreSheets","updateStore","setStoreStatus","deleteStore"]);
 const guarded = new Proxy(googleSheetsRepository, {
   get(target,key:keyof Repository) {
     const method=target[key];
@@ -17,7 +17,7 @@ const guarded = new Proxy(googleSheetsRepository, {
       else if(["updateProduct","updateCategory"].includes(key))storeIds=[String((args[1] as Record<string,unknown>).storeId)];
       else if(["deleteProduct","adjustStock"].includes(key)){const row=await target.getProduct(String(args[0]));if(!row)throw new Error("Product not found");storeIds=[row.storeId];}
       else if(key==="deleteCategory"){const row=await target.getCategory(String(args[0]));if(!row)throw new Error("Category not found");storeIds=[row.storeId];}
-      else if(["updateOrderStatus","updatePaymentStatus"].includes(key)){const row=await target.getOrder(String(args[0]));if(!row)throw new Error("Order not found");storeIds=[row.storeId];}
+      else if(["updateOrderStatus","updateOrderDelivery","updatePaymentStatus"].includes(key)){const row=await target.getOrder(String(args[0]),key==="updateOrderDelivery"&&args[2]!==undefined?String(args[2]):undefined);if(!row)throw new Error("Order not found");storeIds=[row.storeId];}
       else if(key==="bulkUpdateProducts"){for(const id of args[0] as string[]){const row=await target.getProduct(id);if(!row)throw new Error("Product not found");storeIds.push(row.storeId);}}
       else storeIds=[String(args[0])];
       const ids=[...new Set(storeIds)].sort();
@@ -26,7 +26,7 @@ const guarded = new Proxy(googleSheetsRepository, {
         for(const id of ids){
           if(!["deleteStore","setStoreStatus","updateStoreSheets"].includes(key))await enforceLimit(id,"write");
           if(key==="createProduct")await enforceLimit(id,"products",(await target.listProducts({storeId:id,pageSize:1})).total,1);
-          if(key==="createOrder"||key==="updateOrderStatus"){
+          if(key==="createOrder"||key==="updateOrderStatus"||key==="updateOrderDelivery"){
             const from=currentMonthStart();
             await enforceLimit(id,"orders",(await target.listOrders({storeId:id,from,pageSize:1})).total,key==="createOrder"?1:0);
           }

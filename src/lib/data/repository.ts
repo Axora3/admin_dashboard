@@ -6,6 +6,7 @@ import type {
   CheckoutInput,
   Customer,
   CustomerFilters,
+  DeliveryDetails,
   Domain,
   DomainFilters,
   DomainInput,
@@ -88,8 +89,9 @@ export interface Repository {
 
   // Orders
   listOrders(filters: OrderFilters): Promise<Paginated<Order>>;
-  getOrder(id: string): Promise<Order | null>;
+  getOrder(id: string, storeId?: string): Promise<Order | null>;
   updateOrderStatus(id: string, status: OrderStatus): Promise<void>;
+  updateOrderDelivery(id: string, delivery: DeliveryDetails, storeId?: string): Promise<void>;
   updatePaymentStatus(id: string, status: PaymentStatus): Promise<void>;
   createOrder(input: CheckoutInput): Promise<Order>;
 

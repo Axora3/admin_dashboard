@@ -154,6 +154,16 @@ export interface OrderItem {
   unitPrice: number;
 }
 
+/** Store business data; saved only in the owning store's Orders sheet. */
+export interface DeliveryDetails {
+  method: "store_delivery" | "pickup" | "courier";
+  latitude: number | null;
+  longitude: number | null;
+  driverName: string;
+  driverPhone: string;
+  note: string;
+}
+
 export interface Order {
   id: string;
   storeId: string;
@@ -172,6 +182,8 @@ export interface Order {
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
+  /** Older orders have no delivery details until an admin adds them. */
+  delivery?: DeliveryDetails | null;
 }
 
 export interface Customer {
@@ -229,6 +241,8 @@ export interface AuditLog {
 }
 
 export interface AdminUser {
+  siteRole?: "owner" | "editor" | "viewer";
+  siteIds?: string[];
   storeId?: string | null;
   id: string;
   email: string;
@@ -430,4 +444,6 @@ export interface CheckoutInput {
   customerAddress: string;
   note: string;
   items: CheckoutItemInput[];
+  /** Customer-selected destination only; method and driver are server-owned. */
+  delivery?: Pick<DeliveryDetails, "latitude" | "longitude">;
 }

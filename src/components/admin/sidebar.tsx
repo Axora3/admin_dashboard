@@ -14,6 +14,7 @@ import {
   ShoppingCart,
   Store,
   Tags,
+  Truck,
   Users,
   X,
 } from "lucide-react";
@@ -40,6 +41,7 @@ const NAV_GROUPS = [
       { href: "/admin/orders", label: "Захиалгууд", icon: ShoppingCart },
       { href: "/admin/inventory", label: "Барааны үлдэгдэл", icon: Boxes },
       { href: "/admin/customers", label: "Захиалагчид", icon: Users },
+      { href: "/admin/deliveries", label: "Хүргэлт", icon: Truck },
     ],
   },
   {

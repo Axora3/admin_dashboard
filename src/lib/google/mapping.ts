@@ -7,6 +7,7 @@ import type {
   Product,
   ProductVariant,
 } from "@/lib/types";
+import { parseDelivery } from "@/lib/delivery/validation";
 import {
   DEFAULT_COLUMNS,
   REQUIRED_COLUMNS,
@@ -339,6 +340,7 @@ export function rowToOrder(
     orderStatus: normalizeOrderStatus(
       readField(row, headers, mapping, defaults, "orderStatus"),
     ),
+    delivery: parseDelivery(readField(row, headers, mapping, defaults, "delivery")),
     createdAt: toIso(readField(row, headers, mapping, defaults, "createdAt")),
     updatedAt: toIso(
       readField(row, headers, mapping, defaults, "updatedAt"),

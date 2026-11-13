@@ -80,7 +80,7 @@ export async function listPlatformAuditLogs(
     if (storeId) query = query.eq("store_id",storeId);
     if (filters.actorUserId) query=query.eq("actor_id",filters.actorUserId);
     if (filters.action) query=query.eq("action",filters.action);
-    if (storeScope.getStore()) query=query.in("resource_type",["product","category","order","inventory","store_settings","settings","session","admin"]);
+    if (storeScope.getStore()) query=query.in("resource_type",["product","category","order","inventory","store_settings","settings","session","admin","products","categories","orders","customers","discounts","menu","reservations","openingHours","services","appointments","staff","availability","pages","gallery","articles","contactInquiries","projects","projectCategories","site_integration"]);
     const {data,count} = checked(await query.order("created_at",{ascending:false}).range((page-1)*size,page*size-1));
     const rows: AuditLog[] = (data??[]).filter(l=>!storeScope.getStore() || STORE_AUDIT_ACTION.test(l.action)).map(l=>({id:l.id,actorUserId:l.actor_id,actorName:l.actor_name,storeId:l.store_id,storeName:storeNameById.get(l.store_id)??null,action:l.action,resourceType:l.resource_type,resourceId:l.resource_id,metadata:sanitizedMetadata(l.metadata) as Record<string,unknown>,createdAt:l.created_at}));
     return {rows,total:count??0,page,pageSize:size,pageCount:Math.ceil((count??0)/size)};

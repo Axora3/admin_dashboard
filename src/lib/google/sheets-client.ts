@@ -2,7 +2,7 @@ import "server-only";
 import type { Grid, Cell } from "@/lib/backup/validation";
 import { sheetApiFailure } from "@/lib/platform/telemetry";
 
-import { createSign } from "node:crypto";
+import { createHash, createSign } from "node:crypto";
 import {
   extractSpreadsheetId,
   type SheetResource,
@@ -10,7 +10,7 @@ import {
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
-const SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const SCOPE = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file";
 
 interface ServiceAccount {
   clientEmail: string;
@@ -326,6 +326,40 @@ export async function getSpreadsheetMeta(
   };
 }
 
+/**
+ * Find or create a workbook using Drive appProperties as the idempotency
+ * marker. A retry after a timeout can therefore finish provisioning the same
+ * workbook instead of creating a second customer spreadsheet.
+ */
+export async function createSpreadsheetIdempotent(input: {
+  idempotencyKey: string;
+  title: string;
+}): Promise<{ spreadsheetId: string; title: string }> {
+  const marker = createHash("sha256").update(input.idempotencyKey).digest("hex");
+  const token = await accessToken();
+  const query = `appProperties has { key='axoraProvisionKey' and value='${marker}' } and trashed = false`;
+  const search = await fetchWithTimeout(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,appProperties)&pageSize=10`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const searchBody = await search.json().catch(() => ({})) as { files?: Array<{ id?: string; name?: string; mimeType?: string }> };
+  if (!search.ok) throw new GoogleSheetsError(`Drive idempotency lookup failed (${search.status})`, { status: search.status, code: "drive_lookup_failed" });
+  const existing = searchBody.files?.find(file => file.id && file.mimeType === "application/vnd.google-apps.spreadsheet");
+  if (existing?.id) return { spreadsheetId: existing.id, title: existing.name ?? input.title };
+
+  const response = await fetchWithTimeout("https://www.googleapis.com/drive/v3/files?fields=id,name", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: input.title,
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      appProperties: { axoraProvisionKey: marker },
+    }),
+  });
+  const created = await response.json().catch(() => ({})) as { id?: string; name?: string; error?: { message?: string } };
+  if (!response.ok || !created.id) throw new GoogleSheetsError(`Drive spreadsheet creation failed (${response.status}): ${created.error?.message ?? "unknown error"}`, { status: response.status, code: "drive_create_failed" });
+  return { spreadsheetId: created.id, title: created.name ?? input.title };
+}
+
 export interface SheetValues {
   range: string;
   majorDimension: string;
@@ -421,6 +455,10 @@ export async function addSheetTab(
     `Creating sheet "${title}"`,
   );
   return result.replies?.[0]?.addSheet?.properties?.sheetId ?? 0;
+}
+
+export async function deleteSheetTab(spreadsheetIdInput: string, sheetId: number): Promise<void> {
+  await batchUpdateSheet(spreadsheetIdInput, [{ deleteSheet: { sheetId } }]);
 }
 
 export async function deleteSheetRow(

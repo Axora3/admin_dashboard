@@ -33,3 +33,9 @@ yarn-error.log*
 
 # demo persistence (local only)
 /.data
+
+/.next-qa/
+
+/test-results/
+
+/playwright-report/

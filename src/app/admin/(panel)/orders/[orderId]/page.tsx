@@ -31,6 +31,7 @@ import { ORDER_STATUS, ORDER_STATUS_FLOW } from "@/lib/labels";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { OrderStatus } from "@/lib/types";
+import { DeliveryEditor } from "@/components/delivery/delivery-editor";
 
 export default async function OrderDetailPage({
   params,
@@ -161,6 +162,11 @@ export default async function OrderDetailPage({
               </CardContent>
             </Card>
           ) : null}
+
+          <Card>
+            <CardHeader title="Хүргэлтийн байршил ба хүргэгч" description="Дэлгүүр өөрөө хүргэх захиалгын хаяг, хүргэгч, явцыг удирдах." />
+            <CardContent><DeliveryEditor key={order.updatedAt} order={order} /><Link className="mt-4 block text-sm text-brand-700" href={`/admin/deliveries?storeId=${encodeURIComponent(order.storeId)}&order=${encodeURIComponent(order.id)}`}>Бүх хүргэлтийг газрын зураг дээр харах →</Link></CardContent>
+          </Card>
 
           <Card>
             <CardHeader

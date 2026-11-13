@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+@media (min-width: 1024px) {
+  .portal-main { padding-left: 244px; transition: padding-left 200ms ease; }
+  .portal-shell[data-sidebar="collapsed"] .portal-main { padding-left: 76px; }
+}
+
 :root {
   --axora-ring: 53 98 245;
   --axora-header-height: 64px;
@@ -18,6 +23,7 @@
   }
 
   body {
+    font-family: "Inter", Arial, sans-serif;
     @apply bg-surface-muted text-ink-900 antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
   }

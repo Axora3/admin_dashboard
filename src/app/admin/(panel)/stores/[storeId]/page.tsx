@@ -38,6 +38,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClasses } from "@/components/ui/button";
 import { formatCurrency, formatDate, formatNumber, relativeTime } from "@/lib/format";
 import { inviteStoreOwnerAction } from "@/app/admin/actions/stores";
+import { ProvisionSheetsButton } from "@/components/admin/provision-sheets-button";
 
 function str(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -91,6 +92,7 @@ export default async function StoreDetailPage({
         }
         actions={
           <>
+            <ProvisionSheetsButton siteId={store.id} status={store.sheets.connectionStatus} />
             <Link
               href={`/store/${store.slug}`}
               target="_blank"

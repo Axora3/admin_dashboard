@@ -47,8 +47,9 @@ test('concurrent store scopes remain isolated across async boundaries', async ()
 function auth(profile, assigned = 'store-a') {
   const query = data => ({ select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data }) });
   return load('src/lib/auth/server.ts', {
-    'next/headers': {}, 'next/navigation': { redirect(path) { throw Error(`redirect:${path}`); } },
+    'next/headers': { cookies: async () => ({ get: () => undefined }) }, 'next/navigation': { redirect(path) { throw Error(`redirect:${path}`); } },
     '@/lib/config': { isDemoMode: () => false }, './session': {},
+    './site-memberships': { ACTIVE_SITE_COOKIE:'axora_active_site',membershipsFor:async()=>assigned?[{siteId:assigned,role:'owner',status:'active'}]:[],selectedMembership:members=>members[0]??null },
     '@/lib/supabase/server': {
       createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'user-1', email: 'a@example.com' } } }) }, from: () => query(profile) }),
       createSupabaseServiceClient: () => ({ from: () => query(assigned ? { store_id: assigned } : null) }),

@@ -2,8 +2,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { DEMO_COOKIE, isDemoMode } from "@/lib/config";
 import type { AdminUser } from "@/lib/types";
-import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { verifySession } from "./session";
+import { ACTIVE_SITE_COOKIE, membershipsFor, selectedMembership } from "./site-memberships";
 
 export async function getCurrentAdmin(): Promise<AdminUser | null> {
   if (isDemoMode()) {
@@ -36,9 +37,19 @@ export async function getCurrentAdmin(): Promise<AdminUser | null> {
   if (!profile?.is_active) return null;
   const superAdmin = profile.role === "super_admin" && profile.is_super_admin === true;
   if (!superAdmin && profile.role !== "store_admin") return null;
-  const { data: assignment } = superAdmin ? { data: null } : await createSupabaseServiceClient()
-    .from("admin_assignments").select("store_id").eq("user_id", user.id).maybeSingle();
-  if (!superAdmin && !assignment) return null;
+  let membership: ReturnType<typeof selectedMembership> = null;
+  let siteIds: string[] = [];
+  if (!superAdmin) {
+    try {
+      const allMembers = await membershipsFor(user.id);
+      const { getStoreRegistry } = await import("@/lib/registry");
+      const active = await Promise.all(allMembers.map(async member => (await getStoreRegistry().get(member.siteId))?.status === "active"));
+      const members = allMembers.filter((_, index) => active[index]);
+      siteIds = members.map(member => member.siteId);
+      membership = selectedMembership(members, (await cookies()).get(ACTIVE_SITE_COOKIE)?.value);
+    } catch { return null; }
+    if (!membership) return null;
+  }
 
   return {
     id: profile.id,
@@ -46,7 +57,9 @@ export async function getCurrentAdmin(): Promise<AdminUser | null> {
     fullName: profile.full_name ?? user.email ?? "Admin",
     role: profile.role ?? "store_owner",
     isSuperAdmin: superAdmin,
-    storeId: assignment?.store_id ?? null,
+    storeId: membership?.siteId ?? null,
+    siteRole: membership?.role,
+    siteIds,
     avatarUrl: profile.avatar_url ?? null,
     createdAt: profile.created_at ?? new Date().toISOString(),
   };

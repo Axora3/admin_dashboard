@@ -7,30 +7,46 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src/lib/customer src/lib/auth/site-memberships.ts src/components/customer src/app/store-admin src/app/api/admin/site-data src/app/api/admin/site-memberships src/app/api/customer --ext .ts,.tsx --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test:security": "node scripts/test-admin-security.cjs",
+    "test:sheets": "node --test scripts/test-google-sheets-standard.cjs",
     "test:platform": "node --test scripts/test-platform.cjs scripts/test-saas-expansion.cjs",
-    "setup:admin": "node scripts/setup-admin.mjs"
+    "setup:admin": "node scripts/setup-admin.mjs",
+    "test:delivery": "node --test scripts/test-delivery.cjs",
+    "test:customer": "node --test scripts/test-customer-dashboard.cjs",
+    "test:customer:e2e": "playwright test -c playwright.customer.config.ts"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.5",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.48.1",
     "clsx": "^2.1.1",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.474.0",
     "next": "^15.5.29",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "tailwind-merge": "^2.6.0",
-    "zod": "^3.24.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/leaflet": "^1.9.21",
     "@types/node": "^22.10.7",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "autoprefixer": "^10.4.20",
-    "postcss": "^8.5.1",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.5.29",
+    "postcss": "^8.5.23",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "postcss": "$postcss",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
+    }
   }
 }

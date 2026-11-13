@@ -2,6 +2,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { withStoreAdmin } from "@/lib/auth/store-scope";
+import { rateLimit } from "@/lib/rate-limit";
+import { getStoreRegistry } from "@/lib/registry";
+import { siteIntegrationConfig } from "@/lib/google/site-config";
 import { getRepository } from "@/lib/data";
 import { recordAudit } from "@/lib/audit";
 import { productSchema, categorySchema, formObject } from "@/lib/validation";
@@ -14,6 +17,10 @@ export async function storeMutation(_: ActionResult | undefined, form: FormData)
     const operation = String(form.get("operation"));
     const permission:Permission=operation.startsWith("product.")?"products.manage":operation.startsWith("category.")?"products.manage":operation.startsWith("order.")?"orders.manage":"settings.manage";
     assertPermission(admin,permission,admin.storeId);
+    if (!rateLimit("legacy-customer:" + admin.id, 40, 60000).allowed) return { ok:false,message:"Түр хүлээгээд дахин оролдоно уу." };
+    const site = await getStoreRegistry().get(admin.storeId);
+    const resourceName = operation.startsWith("product.") ? "products" : operation.startsWith("category.") ? "categories" : operation.startsWith("order.") ? "orders" : null;
+    if (!site || (resourceName && !siteIntegrationConfig(site).enabled_modules.includes(resourceName))) return { ok:false,message:"Энэ боломж сайтад идэвхгүй байна." };
     const id = String(form.get("id") ?? "");
     let before: unknown = null;
     let after: unknown = null;

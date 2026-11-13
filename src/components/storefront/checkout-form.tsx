@@ -10,6 +10,7 @@ import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useCart } from "./cart-context";
 import { ProductImage } from "./product-image";
+import { LocationPicker } from "@/components/delivery/location-picker";
 
 export function CheckoutForm({
   storeSlug,
@@ -197,6 +198,12 @@ export function CheckoutForm({
               ) : null}
             </div>
           </div>
+
+          {shipping.enabled ? <div className="mt-5 border-t border-ink-100 pt-5">
+            <LocationPicker />
+            <p className="mt-2 text-xs text-ink-400">Заавал биш. Сонгосон байршлыг дэлгүүр таны хүргэлтэд ашиглана.</p>
+            {state?.errors?.delivery ? <p className="mt-1.5 text-xs text-danger-600">{state.errors.delivery}</p> : null}
+          </div> : null}
 
           <div className="mt-4">
             <label htmlFor="note" className="mb-1.5 block text-[13px] font-medium text-ink-700">

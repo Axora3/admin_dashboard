@@ -19,10 +19,66 @@ import {
   REQUIRED_COLUMNS,
   cloneColumns,
   extractSpreadsheetId,
+  spreadsheetUrl,
   type SheetResource,
   type StoreSheetColumns,
   type StoreSheetTabs,
 } from "@/lib/google/types";
+import { getStoreRegistry } from "@/lib/registry";
+import { recordPlatformAudit } from "@/lib/registry/audit-store";
+import { provisionSiteSpreadsheet } from "@/lib/google/provisioning";
+import { withPlatformLock } from "@/lib/platform/locks";
+import { z } from "zod";
+
+/** Super-admin provisioning is retry-safe: Drive stores the idempotency marker on the created file. */
+export async function provisionSiteSheetsAction(input: { storeId: string; idempotencyKey: string }) {
+  const actor = await requireSuperAdmin();
+  const parsed = z.object({ storeId: z.string().min(1).max(128), idempotencyKey: z.string().uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false as const, message: "Provisioning request is invalid." };
+  const registry = getStoreRegistry();
+  const store = await registry.get(parsed.data.storeId);
+  if (!store) return { ok: false as const, message: "Site was not found." };
+  if (store.sheets.connectionStatus === "connected" && store.sheets.spreadsheetId) return { ok: false as const, message: "This site already has a connected spreadsheet. Use the existing mapping." };
+  if (sheetsMode() !== "google") return { ok: false as const, message: "Google credentials are not configured; provisioning did not run." };
+
+  try {
+    return await withPlatformLock(`sheets-provision:${store.id}`, async () => {
+      await registry.updateSheets(store.id, { ...store.sheets, connectionStatus: "provisioning", lastError: null });
+      const result = await provisionSiteSpreadsheet({
+        storeId: store.id, storeName: store.name, businessType: store.businessType,
+        idempotencyKey: parsed.data.idempotencyKey,
+      });
+      const now = new Date().toISOString();
+      await registry.updateSheets(store.id, {
+        ...store.sheets,
+        spreadsheetId: result.spreadsheetId,
+        spreadsheetUrl: spreadsheetUrl(result.spreadsheetId),
+        spreadsheetName: result.spreadsheetName,
+        connectionStatus: "connected",
+        lastSyncAt: now,
+        lastSuccessfulSync: now,
+        lastCheckedAt: now,
+        lastError: null,
+        schemaVersion: result.schemaVersion,
+        enabledModules: result.enabledModules,
+        configurationVersion: (store.sheets.configurationVersion ?? 1) + 1,
+      });
+      await recordPlatformAudit({ actorUserId: actor.id, actorName: actor.fullName, storeId: store.id,
+        action: "sheets.provisioned", resourceType: "site_integration", resourceId: store.id,
+        metadata: { businessType: result.businessType, schemaVersion: result.schemaVersion, moduleCount: result.enabledModules.length },
+      });
+      return { ok: true as const, spreadsheetId: result.spreadsheetId, spreadsheetName: result.spreadsheetName };
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.name.slice(0, 64) : "unknown_error";
+    await registry.updateSheets(store.id, { ...store.sheets, connectionStatus: "error", lastCheckedAt: new Date().toISOString(), lastError: `Provisioning failed (${code}).` });
+    await recordPlatformAudit({ actorUserId: actor.id, actorName: actor.fullName, storeId: store.id,
+      action: "sheets.provisioning_failed", resourceType: "site_integration", resourceId: store.id,
+      metadata: { code },
+    });
+    return { ok: false as const, message: "Google Sheets provisioning failed. Review the site integration status and server logs." };
+  }
+}
 
 export interface SheetInspectInput {
   spreadsheetUrl: string;
